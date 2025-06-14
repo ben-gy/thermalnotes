@@ -101,8 +101,6 @@ button.secondary {
   color: #888;
 }
 
-
-
 .sticky-root {
   width: 100%;
   padding: 30px;
@@ -113,12 +111,10 @@ button.secondary {
   flex-direction: column;
 }
 
-
-
 .note-area {
   width: 100%;
-  min-height: 140px;
-  padding: 20px;
+  height: 1.2em;
+  padding: 0 20px;
   box-sizing: border-box;
   text-align: center;
   resize: none;
@@ -131,6 +127,12 @@ button.secondary {
   border-style: dashed;
   border-spacing: 8px;
   background: transparent;
+  line-height: 1.2;
+  overflow: hidden;
+}
+
+.note-area::placeholder {
+  color: #5d4e37;
 }
 
 .note-area:focus {
@@ -144,13 +146,48 @@ button.secondary {
   background: none;
   border: none;
   color: var(--accent);
-  opacity: 0.3;
+  opacity: 0.5;
   cursor: pointer;
   transition: opacity 0.15s;
 }
 
 .color-toggle-btn:hover {
   opacity: 0.7;
+}
+
+.font-controls {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.5;
+  font-weight: bold;
+  transition: opacity 0.15s;
+}
+
+.font-controls:hover {
+  opacity: 0.7;
+}
+
+.font-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.font-size-display {
+  font-size: 12px;
+  color: var(--accent);
+  min-width: 28px;
+  text-align: center;
 }
 
 .refresh-btn {

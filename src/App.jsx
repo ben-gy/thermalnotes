@@ -1,50 +1,71 @@
 import { useEffect, useRef, useState } from 'react';
-import { FiRefreshCw, FiCircle } from 'react-icons/fi';
+import { FiRefreshCw, FiCircle, FiPlus, FiMinus } from 'react-icons/fi';
 import { FaCircle } from 'react-icons/fa';
 import './index.css';
 
 function App() {
   const [note, setNote] = useState('');
-  const [fontSize, setFontSize] = useState(40);
   const [lastPrintedText, setLastPrintedText] = useState('');
-  const [noteColor, setNoteColor] = useState('white');
+  const [noteColor, setNoteColor] = useState(() => {
+    return localStorage.getItem('noteColor') || 'white';
+  });
+  const [fontSize, setFontSize] = useState(() => {
+    return parseInt(localStorage.getItem('fontSize')) || 30;
+  });
   const previewRef = useRef(null);
 
-  // Hardcoded font size values
-  const MAX_FONT = 40;
-  const MIN_FONT = 16;
-
-  useEffect(() => {
-    let size = MAX_FONT;
-    if (!previewRef.current) return;
-    const el = previewRef.current;
-    // Height for 2 lines at current size (approx line-height 1.2)
-    const maxHeightForSize = (s) => 2 * s * 1.3;
-
-    el.style.fontSize = `${size}px`;
-    while (el.scrollHeight > maxHeightForSize(size) && size > MIN_FONT) {
-      size -= 2;
-      el.style.fontSize = `${size}px`;
+  // Auto-resize textarea height based on content
+  const adjustTextareaHeight = () => {
+    if (previewRef.current) {
+      // Reset height to get accurate scrollHeight
+      previewRef.current.style.height = 'auto';
+      const scrollHeight = previewRef.current.scrollHeight;
+      previewRef.current.style.height = scrollHeight + 'px';
+      
+      // Resize window to fit exactly
+      const total = 60 + scrollHeight; // 30px top padding + content + 30px bottom padding
+      window.api.resizeWindow(total);
     }
-    setFontSize(size);
-  }, [note]);
+  };
 
   // Resize window to fit content
   useEffect(() => {
-    const noteH = previewRef.current ? previewRef.current.scrollHeight : 0;
-    const total = 30 + noteH + 30; // top padding + content + bottom padding
-    window.api.resizeWindow(Math.ceil(total));
+    setTimeout(() => {
+      if (previewRef.current) {
+        adjustTextareaHeight();
+      }
+    }, 0);
   }, [note, fontSize]);
 
   // Focus on load
   useEffect(() => {
-    setTimeout(() => previewRef.current && previewRef.current.focus(), 50);
+    setTimeout(() => {
+      if (previewRef.current) {
+        previewRef.current.focus();
+        adjustTextareaHeight();
+      }
+    }, 50);
   }, []);
 
   // Update body background to match sticky colour
   useEffect(() => {
     document.body.style.background = noteColor === 'yellow' ? '#fff9c4' : '#ffffff';
   }, [noteColor]);
+
+  // Save color preference to localStorage
+  useEffect(() => {
+    localStorage.setItem('noteColor', noteColor);
+  }, [noteColor]);
+
+  // Save font size preference to localStorage
+  useEffect(() => {
+    localStorage.setItem('fontSize', fontSize.toString());
+  }, [fontSize]);
+
+  const handleChange = (e) => {
+    setNote(e.target.value);
+    setTimeout(adjustTextareaHeight, 0); // Adjust height after state update
+  };
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -53,12 +74,21 @@ function App() {
         setLastPrintedText(note.trim());
         window.api.print(note.trim());
         setNote('');
+        setTimeout(adjustTextareaHeight, 0);
       }
     }
   };
 
   const toggleColor = () => {
     setNoteColor(noteColor === 'white' ? 'yellow' : 'white');
+  };
+
+  const increaseFontSize = () => {
+    setFontSize(prev => Math.min(prev + 2, 60)); // Max 60pt
+  };
+
+  const decreaseFontSize = () => {
+    setFontSize(prev => Math.max(prev - 2, 16)); // Min 16pt
   };
 
   return (
@@ -69,9 +99,9 @@ function App() {
       <textarea
         className="note-area"
         ref={previewRef}
-        style={{ fontSize }}
+        style={{ fontSize: `${fontSize}pt` }}
         value={note}
-        onChange={(e) => setNote(e.target.value)}
+        onChange={handleChange}
         onKeyDown={handleKeyDown}
         placeholder="Your text…"
       />
@@ -87,6 +117,24 @@ function App() {
           <FaCircle size={18} />
         )}
       </button>
+
+      <div className="font-controls">
+        <button 
+          className="font-btn" 
+          onClick={decreaseFontSize}
+          title="Decrease font size"
+        >
+          <FiMinus size={14} />
+        </button>
+        <span className="font-size-display">{fontSize}pt</span>
+        <button 
+          className="font-btn" 
+          onClick={increaseFontSize}
+          title="Increase font size"
+        >
+          <FiPlus size={14} />
+        </button>
+      </div>
 
       {lastPrintedText && (
         <button 
