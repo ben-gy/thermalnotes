@@ -192,12 +192,12 @@ button.secondary {
 
 .refresh-btn {
   position: absolute;
-  bottom: 12px;
-  right: 12px;
+  bottom: 4px;
+  right: 4px;
   background: none;
   border: none;
   color: var(--accent);
-  opacity: 0.3;
+  opacity: 0.5;
   cursor: pointer;
   padding: 4px;
   transition: opacity 0.15s;
