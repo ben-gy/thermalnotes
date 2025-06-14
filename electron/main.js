@@ -11,8 +11,8 @@ let lastTicket = '';
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 450,
-    height: 600,
+    width: 360,
+    height: 420,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -104,4 +104,21 @@ ipcMain.handle('list-serial-ports', async () => {
 
 ipcMain.handle('save-printer-path', (_event, path) => {
   store.set('printerPath', path);
+});
+
+// dynamically resize the window height
+ipcMain.handle('resize-window', (_event, height) => {
+  const win = BrowserWindow.getFocusedWindow();
+  if (win) {
+    const bounds = win.getBounds();
+    win.setContentSize(bounds.width, Math.max(160, Math.min(height, 800)));
+  }
+});
+
+ipcMain.handle('get-settings', () => {
+  return store.store;
+});
+
+ipcMain.handle('save-settings', (_event, data) => {
+  store.set(data);
 }); 

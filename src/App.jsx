@@ -1,122 +1,102 @@
 import { useEffect, useRef, useState } from 'react';
-import { FiSettings } from 'react-icons/fi';
+import { FiRefreshCw, FiCircle } from 'react-icons/fi';
+import { FaCircle } from 'react-icons/fa';
 import './index.css';
-
-function SettingsModal({ open, onClose }) {
-  const [ports, setPorts] = useState([]);
-  const [selected, setSelected] = useState('');
-
-  useEffect(() => {
-    if (!open) return;
-    window.api.listPorts().then(setPorts);
-  }, [open]);
-
-  const save = () => {
-    window.api.savePrinterPath(selected);
-    onClose();
-  };
-
-  if (!open) return null;
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Select Printer Port</h3>
-        {ports.length === 0 && <p>No serial ports detected.</p>}
-        <ul className="port-list">
-          {ports.map((p) => (
-            <li key={p}>
-              <label>
-                <input
-                  type="radio"
-                  name="port"
-                  value={p}
-                  checked={selected === p}
-                  onChange={() => setSelected(p)}
-                />
-                {p}
-              </label>
-            </li>
-          ))}
-        </ul>
-        <div className="modal-actions">
-          <button className="secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button disabled={!selected} onClick={save}>
-            Save
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function App() {
   const [note, setNote] = useState('');
   const [fontSize, setFontSize] = useState(40);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [lastPrintedText, setLastPrintedText] = useState('');
+  const [noteColor, setNoteColor] = useState('white');
   const previewRef = useRef(null);
 
-  // Adjust font size dynamically so preview stays <= 2 visible lines
+  // Hardcoded font size values
+  const MAX_FONT = 40;
+  const MIN_FONT = 16;
+
   useEffect(() => {
-    const MAX = 40; // starting size
-    let size = MAX;
+    let size = MAX_FONT;
     if (!previewRef.current) return;
     const el = previewRef.current;
     // Height for 2 lines at current size (approx line-height 1.2)
     const maxHeightForSize = (s) => 2 * s * 1.3;
 
     el.style.fontSize = `${size}px`;
-    while (el.scrollHeight > maxHeightForSize(size) && size > 16) {
+    while (el.scrollHeight > maxHeightForSize(size) && size > MIN_FONT) {
       size -= 2;
       el.style.fontSize = `${size}px`;
     }
     setFontSize(size);
   }, [note]);
 
+  // Resize window to fit content
+  useEffect(() => {
+    const noteH = previewRef.current ? previewRef.current.scrollHeight : 0;
+    const total = 30 + noteH + 30; // top padding + content + bottom padding
+    window.api.resizeWindow(Math.ceil(total));
+  }, [note, fontSize]);
+
+  // Focus on load
+  useEffect(() => {
+    setTimeout(() => previewRef.current && previewRef.current.focus(), 50);
+  }, []);
+
+  // Update body background to match sticky colour
+  useEffect(() => {
+    document.body.style.background = noteColor === 'yellow' ? '#fff9c4' : '#ffffff';
+  }, [noteColor]);
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (note.trim()) {
+        setLastPrintedText(note.trim());
         window.api.print(note.trim());
         setNote('');
       }
     }
   };
 
+  const toggleColor = () => {
+    setNoteColor(noteColor === 'white' ? 'yellow' : 'white');
+  };
+
   return (
-    <div className="app-card">
-      <header className="card-header">
-        <h2>Thermal Notes</h2>
-        <button className="icon-btn" onClick={() => setSettingsOpen(true)}>
-          <FiSettings size={20} />
-        </button>
-      </header>
-
-      <div className="preview" ref={previewRef} style={{ fontSize }}>
-        {note || 'Your text…'}
-      </div>
-
+    <div 
+      className="sticky-root" 
+      style={{ background: noteColor === 'yellow' ? '#fff9c4' : '#fff' }}
+    >
       <textarea
-        className="note-input"
+        className="note-area"
+        ref={previewRef}
+        style={{ fontSize }}
         value={note}
-        placeholder="Type then press Enter to print"
         onChange={(e) => setNote(e.target.value)}
         onKeyDown={handleKeyDown}
+        placeholder="Your text…"
       />
 
-      <div className="actions">
-        <button className="primary" disabled={!note.trim()} onClick={() => window.api.print(note.trim())}>
-          Print
-        </button>
-        <button className="secondary" onClick={() => window.api.reprint()}>
-          Re-print Last
-        </button>
-      </div>
+      <button 
+        className="color-toggle-btn" 
+        onClick={toggleColor}
+        title={`Switch to ${noteColor === 'white' ? 'yellow' : 'white'} sticky note`}
+      >
+        {noteColor === 'white' ? (
+          <FiCircle size={18} />
+        ) : (
+          <FaCircle size={18} />
+        )}
+      </button>
 
-      <p className="footer">Current font size: {fontSize} pt</p>
-
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {lastPrintedText && (
+        <button 
+          className="refresh-btn" 
+          onClick={() => setNote(lastPrintedText)}
+          title="Restore last printed text"
+        >
+          <FiRefreshCw size={16} />
+        </button>
+      )}
     </div>
   );
 }
