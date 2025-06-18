@@ -441,9 +441,9 @@ ipcMain.handle('print-ticket', async (_event, text, alignment = 'center', fontSi
           
           // Convert font size to escpos size multiplier
           let sizeMultiplier = 1; // default
-          if (fontSize >= 48) sizeMultiplier = 3;      // X-Large (48pt)
-          else if (fontSize >= 28) sizeMultiplier = 2; // Regular (28pt) and Large (36pt)
-          else sizeMultiplier = 1;                      // Tiny (16pt) and Small (20pt)
+          if (fontSize >= 40) sizeMultiplier = 3;      // Large (40pt)
+          else if (fontSize >= 28) sizeMultiplier = 2; // Medium (28pt)
+          else sizeMultiplier = 1;                      // Small (20pt)
           
           console.log('[PRINTER] Using size multiplier:', sizeMultiplier, 'for fontSize:', fontSize);
           
@@ -513,9 +513,9 @@ ipcMain.handle('reprint-last', async () => {
           
           // Convert font size to escpos size multiplier
           let sizeMultiplier = 1; // default
-          if (lastFontSize >= 48) sizeMultiplier = 3;      // X-Large (48pt)
-          else if (lastFontSize >= 28) sizeMultiplier = 2; // Regular (28pt) and Large (36pt)
-          else sizeMultiplier = 1;                          // Tiny (16pt) and Small (20pt)
+          if (lastFontSize >= 40) sizeMultiplier = 3;      // Large (40pt)
+          else if (lastFontSize >= 28) sizeMultiplier = 2; // Medium (28pt)
+          else sizeMultiplier = 1;                          // Small (20pt)
           
           console.log('[PRINTER] Reprint using size multiplier:', sizeMultiplier, 'for fontSize:', lastFontSize);
           

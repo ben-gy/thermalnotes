@@ -157,9 +157,9 @@ function App() {
   // Get characters per line based on font size for EPSON TM-m30III
   const getCharsPerLine = (fontSizePt) => {
     // Calibrated based on actual printer output
-    if (fontSizePt >= 40) return 14;      // Large: ~14 chars  
-    else if (fontSizePt >= 28) return 22; // Medium: ~22 chars
-    else return 30;                        // Small: ~30 chars
+    if (fontSizePt >= 40) return 12;      // Large: ~12 chars
+    else if (fontSizePt >= 28) return 17; // Medium: ~17 chars
+    else return 24;                        // Small: ~24 chars (was 30, but printer shows ~24)
   };
 
   // Monitor content changes
