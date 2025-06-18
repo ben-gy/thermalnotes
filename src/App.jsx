@@ -97,21 +97,23 @@ function App() {
       // Force browser to recalculate
       void previewRef.current.offsetHeight;
       
-      // Get the computed line height to ensure accurate calculations
-      const computedStyle = window.getComputedStyle(previewRef.current);
-      const lineHeight = parseFloat(computedStyle.lineHeight);
-      const fontSize = parseFloat(computedStyle.fontSize);
+      // Get the actual content height - use ceil to handle fractional pixels
+      const scrollHeight = Math.ceil(previewRef.current.scrollHeight);
       
-      // Use scrollHeight but ensure minimum height based on line height
-      const scrollHeight = previewRef.current.scrollHeight;
-      const minHeight = Math.max(scrollHeight, lineHeight || fontSize * 1.2);
+      // Set the height
+      previewRef.current.style.height = scrollHeight + 'px';
       
-      previewRef.current.style.height = minHeight + 'px';
-      
-      // Calculate total window height with consistent buffer
-      // 44px controls header + 15px paper margin top + 40px paper padding + content + 15px paper margin bottom + 25px consistent buffer
-      const windowHeight = 44 + 15 + 40 + minHeight + 15 + 25;
-      const windowWidth = 332; // Fixed width matching sticky-root
+      // Calculate total window height with fixed values
+      // Fixed components:
+      // 44px - controls header
+      // 15px - paper margin top
+      // 20px - paper padding top
+      // 20px - paper padding bottom  
+      // 15px - paper margin bottom
+      // 30px - extra buffer for window chrome and safety
+      const fixedHeight = 44 + 15 + 20 + 20 + 15 + 30;
+      const windowHeight = fixedHeight + scrollHeight;
+      const windowWidth = 332;
       
       window.api.resizeWindow(windowHeight, windowWidth);
     }
@@ -119,12 +121,10 @@ function App() {
 
   // Resize window to fit content
   useEffect(() => {
-    // Add a delay when font size changes to ensure proper rendering
+    // Small delay to ensure proper rendering
     const timeoutId = setTimeout(() => {
-      if (previewRef.current) {
-        adjustTextareaHeight();
-      }
-    }, fontSize !== FONT_SIZES[fontSizeIndex] ? 50 : 0);
+      adjustTextareaHeight();
+    }, 10);
     
     return () => clearTimeout(timeoutId);
   }, [note, fontSize, fontSizeIndex]);
@@ -137,16 +137,6 @@ function App() {
     }
   }, [wordWrap, fontSize, rawText]); // Also trigger when rawText changes
 
-  // Force recalculation when font size changes
-  useEffect(() => {
-    // Small delay to ensure font size has been applied
-    const timeoutId = setTimeout(() => {
-      adjustTextareaHeight();
-    }, 10);
-    
-    return () => clearTimeout(timeoutId);
-  }, [fontSizeIndex]);
-
   // Focus on load
   useEffect(() => {
     setTimeout(() => {
@@ -156,8 +146,9 @@ function App() {
       }
     }, 50);
     
-    // Set initial window size with consistent buffer
-    const initialHeight = 44 + 15 + 40 + 30 + 15 + 25; // Initial height with one line + consistent buffer
+    // Set initial window size with same fixed calculation
+    // Using estimated initial scrollHeight of 24px for one line
+    const initialHeight = 44 + 15 + 20 + 20 + 15 + 30 + 24; // Fixed components + estimated content
     window.api.resizeWindow(initialHeight, 332);
   }, []);
 

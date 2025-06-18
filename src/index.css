@@ -119,7 +119,7 @@ button.secondary {
   padding: 0; /* Remove padding to allow toolbar to be flush */
   box-sizing: border-box;
   background: #f5f5f5; /* Light grey background to show paper edges */
-  position: relative;
+  position: relative; /* For absolute positioning of children */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -160,7 +160,6 @@ button.secondary {
 
 .paper-container {
   width: 302px; /* 80mm thermal paper width at 96 DPI */
-  min-height: 120px; /* Reduced minimum height */
   background: white;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   position: relative;
@@ -176,7 +175,7 @@ button.secondary {
 
 .note-area {
   width: 100%;
-  min-height: 1.2em;
+  min-height: 24px; /* Fixed minimum height instead of em-based */
   padding: 0;
   margin: 0; /* Ensure no margin */
   box-sizing: border-box;
@@ -192,6 +191,7 @@ button.secondary {
   line-height: 1.2; /* Consistent line height relative to font size */
   overflow: hidden;
   vertical-align: top; /* Ensure consistent vertical alignment */
+  display: block; /* Ensure block display to prevent inline spacing */
 }
 
 .note-area::placeholder {
