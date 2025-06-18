@@ -92,14 +92,25 @@ function App() {
   // Auto-resize textarea height based on content
   const adjustTextareaHeight = () => {
     if (previewRef.current) {
-      // Reset height to get accurate scrollHeight
+      // Force a reflow to ensure accurate measurements
       previewRef.current.style.height = 'auto';
-      const scrollHeight = previewRef.current.scrollHeight;
-      previewRef.current.style.height = scrollHeight + 'px';
+      // Force browser to recalculate
+      void previewRef.current.offsetHeight;
       
-      // Calculate total window height with larger buffer to prevent scrolling
-      // 44px controls header + 15px paper margin top + 40px paper padding + content + 15px paper margin bottom + 20px buffer
-      const windowHeight = 44 + 15 + 40 + scrollHeight + 15 + 20;
+      // Get the computed line height to ensure accurate calculations
+      const computedStyle = window.getComputedStyle(previewRef.current);
+      const lineHeight = parseFloat(computedStyle.lineHeight);
+      const fontSize = parseFloat(computedStyle.fontSize);
+      
+      // Use scrollHeight but ensure minimum height based on line height
+      const scrollHeight = previewRef.current.scrollHeight;
+      const minHeight = Math.max(scrollHeight, lineHeight || fontSize * 1.2);
+      
+      previewRef.current.style.height = minHeight + 'px';
+      
+      // Calculate total window height with consistent buffer
+      // 44px controls header + 15px paper margin top + 40px paper padding + content + 15px paper margin bottom + 25px consistent buffer
+      const windowHeight = 44 + 15 + 40 + minHeight + 15 + 25;
       const windowWidth = 332; // Fixed width matching sticky-root
       
       window.api.resizeWindow(windowHeight, windowWidth);
@@ -108,12 +119,15 @@ function App() {
 
   // Resize window to fit content
   useEffect(() => {
-    setTimeout(() => {
+    // Add a delay when font size changes to ensure proper rendering
+    const timeoutId = setTimeout(() => {
       if (previewRef.current) {
         adjustTextareaHeight();
       }
-    }, 0);
-  }, [note, fontSize]);
+    }, fontSize !== FONT_SIZES[fontSizeIndex] ? 50 : 0);
+    
+    return () => clearTimeout(timeoutId);
+  }, [note, fontSize, fontSizeIndex]);
 
   // Re-wrap text when word wrap setting changes
   useEffect(() => {
@@ -122,6 +136,16 @@ function App() {
       setNote(wrappedText);
     }
   }, [wordWrap, fontSize, rawText]); // Also trigger when rawText changes
+
+  // Force recalculation when font size changes
+  useEffect(() => {
+    // Small delay to ensure font size has been applied
+    const timeoutId = setTimeout(() => {
+      adjustTextareaHeight();
+    }, 10);
+    
+    return () => clearTimeout(timeoutId);
+  }, [fontSizeIndex]);
 
   // Focus on load
   useEffect(() => {
@@ -132,8 +156,8 @@ function App() {
       }
     }, 50);
     
-    // Set initial window size with larger buffer
-    const initialHeight = 44 + 15 + 40 + 30 + 15 + 20; // Initial height with one line + larger buffer
+    // Set initial window size with consistent buffer
+    const initialHeight = 44 + 15 + 40 + 30 + 15 + 25; // Initial height with one line + consistent buffer
     window.api.resizeWindow(initialHeight, 332);
   }, []);
 

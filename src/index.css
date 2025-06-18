@@ -10,15 +10,21 @@
 html {
   margin: 0;
   padding: 0;
+  height: 100%;
 }
 
 body {
   margin: 0;
   padding: 0; /* Ensure no padding */
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  background: var(--bg);
+  background: #f5f5f5; /* Match sticky-root background */
   color: var(--text);
-  /* height handled by window */
+  height: 100%;
+  overflow: hidden; /* Prevent body scrolling */
+}
+
+#root {
+  height: 100%;
 }
 
 .app-container {
@@ -117,7 +123,7 @@ button.secondary {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-height: 164px; /* Updated minimum height to match initial window size */
+  min-height: 100%; /* Fill at least full window height */
   overflow: hidden; /* Ensure nothing extends outside */
 }
 
@@ -163,7 +169,7 @@ button.secondary {
   display: flex;
   flex-direction: column;
   border-radius: 2px;
-  margin: 15px; /* Add margin around the paper */
+  margin: 15px; /* Consistent margin all around */
   /* Subtle border to indicate printable area */
   border: 1px solid #f0f0f0;
 }
@@ -183,8 +189,9 @@ button.secondary {
   cursor: text;
   border: none; /* Remove border - paper container shows boundaries */
   background: transparent;
-  line-height: 0.85; /* Ultra-tight spacing like thermal printers */
+  line-height: 1.2; /* Consistent line height relative to font size */
   overflow: hidden;
+  vertical-align: top; /* Ensure consistent vertical alignment */
 }
 
 .note-area::placeholder {

@@ -22,6 +22,7 @@ function createWindow() {
     minWidth: 332, // Prevent resizing narrower
     maxWidth: 332, // Prevent resizing wider
     minHeight: 160,
+    resizable: false, // Prevent manual resizing
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
