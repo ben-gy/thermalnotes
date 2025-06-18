@@ -17,9 +17,10 @@ let printerCheckInterval = null;
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 600, // Increased to accommodate all controls
-    height: 420,
-    minWidth: 600, // Prevent resizing too narrow
+    width: 332, // Fixed width for our app
+    height: 250, // Initial height (will be adjusted by content)
+    minWidth: 332, // Prevent resizing narrower
+    maxWidth: 332, // Prevent resizing wider
     minHeight: 160,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -574,13 +575,12 @@ ipcMain.handle('save-printer-path', (_event, path) => {
 });
 
 // dynamically resize the window height
-ipcMain.handle('resize-window', (_event, height) => {
+ipcMain.handle('resize-window', (_event, height, width) => {
   const win = BrowserWindow.getFocusedWindow();
   if (win) {
-    const bounds = win.getBounds();
-    // Ensure minimum width of 600 to show all controls
-    const width = Math.max(600, bounds.width);
-    win.setContentSize(width, Math.max(160, Math.min(height, 800)));
+    // Use provided width if given, otherwise use window width of 332px
+    const newWidth = width || 332;
+    win.setContentSize(newWidth, Math.max(160, Math.min(height, 800)));
   }
 });
 

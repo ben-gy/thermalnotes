@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld('api', {
   savePrinterPath: (path) => ipcRenderer.invoke('save-printer-path', path),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (data) => ipcRenderer.invoke('save-settings', data),
-  resizeWindow: (h) => ipcRenderer.invoke('resize-window', h),
+  resizeWindow: (h, w) => ipcRenderer.invoke('resize-window', h, w),
   getPrinterStatus: () => ipcRenderer.invoke('get-printer-status'),
   refreshPrinterStatus: () => ipcRenderer.invoke('refresh-printer-status'),
   scanNetworkPrinters: () => ipcRenderer.invoke('scan-network-printers'),

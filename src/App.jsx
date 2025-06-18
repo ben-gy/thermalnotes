@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { FiRefreshCw, FiCircle, FiPlus, FiMinus, FiCheck, FiX, FiLoader, FiAlignLeft, FiAlignCenter, FiAlignRight, FiBold, FiUnderline, FiType } from 'react-icons/fi';
+import { MdWrapText } from 'react-icons/md';
 import { MdFormatSize } from 'react-icons/md';
 import { AiOutlineFontSize } from 'react-icons/ai';
 import { FaCircle } from 'react-icons/fa';
+import { IoColorPaletteOutline } from 'react-icons/io5';
 import './index.css';
 
 // Custom font size icon component
@@ -73,6 +75,10 @@ function App() {
   const [textAlign, setTextAlign] = useState(() => {
     return localStorage.getItem('textAlign') || 'center';
   });
+  const [wordWrap, setWordWrap] = useState(() => {
+    const saved = localStorage.getItem('wordWrap');
+    return saved === null ? true : saved === 'true'; // Default to true (word wrapping on)
+  });
   // Note: Bold and underline currently apply to all text. 
   // To support selection-based formatting, we'd need to switch from <textarea> to contenteditable or a rich text editor
   const [isBold, setIsBold] = useState(false);
@@ -91,9 +97,12 @@ function App() {
       const scrollHeight = previewRef.current.scrollHeight;
       previewRef.current.style.height = scrollHeight + 'px';
       
-      // Resize window to fit exactly
-      const total = 60 + scrollHeight; // 30px top padding + content + 30px bottom padding
-      window.api.resizeWindow(total);
+      // Calculate total window height with larger buffer to prevent scrolling
+      // 44px controls header + 15px paper margin top + 40px paper padding + content + 15px paper margin bottom + 20px buffer
+      const windowHeight = 44 + 15 + 40 + scrollHeight + 15 + 20;
+      const windowWidth = 332; // Fixed width matching sticky-root
+      
+      window.api.resizeWindow(windowHeight, windowWidth);
     }
   };
 
@@ -106,6 +115,14 @@ function App() {
     }, 0);
   }, [note, fontSize]);
 
+  // Re-wrap text when word wrap setting changes
+  useEffect(() => {
+    if (rawText) {
+      const wrappedText = simulatePrinterWrapping(rawText, fontSize, wordWrap);
+      setNote(wrappedText);
+    }
+  }, [wordWrap, fontSize, rawText]); // Also trigger when rawText changes
+
   // Focus on load
   useEffect(() => {
     setTimeout(() => {
@@ -114,12 +131,11 @@ function App() {
         adjustTextareaHeight();
       }
     }, 50);
+    
+    // Set initial window size with larger buffer
+    const initialHeight = 44 + 15 + 40 + 30 + 15 + 20; // Initial height with one line + larger buffer
+    window.api.resizeWindow(initialHeight, 332);
   }, []);
-
-  // Update body background to match sticky colour
-  useEffect(() => {
-    document.body.style.background = noteColor === 'yellow' ? '#fff9c4' : '#ffffff';
-  }, [noteColor]);
 
   // Save color preference to localStorage
   useEffect(() => {
@@ -135,6 +151,11 @@ function App() {
   useEffect(() => {
     localStorage.setItem('textAlign', textAlign);
   }, [textAlign]);
+
+  // Save word wrap preference to localStorage
+  useEffect(() => {
+    localStorage.setItem('wordWrap', wordWrap.toString());
+  }, [wordWrap]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -233,7 +254,7 @@ function App() {
     else return 40;                        // Tiny: size(1,1) = ~40 chars
   };
 
-  const simulatePrinterWrapping = (text, fontSizePt) => {
+  const simulatePrinterWrapping = (text, fontSizePt, useWordWrap = wordWrap) => {
     const charsPerLine = getCharsPerLine(fontSizePt);
     
     // Split text by manual line breaks first
@@ -248,10 +269,41 @@ function App() {
       } else if (line.length <= charsPerLine) {
         // Line fits, add as-is
         wrappedLines.push(line);
-      } else {
-        // Line needs wrapping
+      } else if (!useWordWrap) {
+        // Character wrapping (original behavior)
         for (let i = 0; i < line.length; i += charsPerLine) {
           wrappedLines.push(line.slice(i, i + charsPerLine));
+        }
+      } else {
+        // Word wrapping - don't break words
+        let remainingLine = line;
+        while (remainingLine.length > 0) {
+          if (remainingLine.length <= charsPerLine) {
+            wrappedLines.push(remainingLine);
+            break;
+          }
+          
+          // Find the last space within the character limit
+          let breakPoint = charsPerLine;
+          let lastSpace = remainingLine.lastIndexOf(' ', charsPerLine);
+          
+          if (lastSpace > 0) {
+            // Break at the last space
+            breakPoint = lastSpace;
+          } else {
+            // No space found, look for the next space after the limit
+            let nextSpace = remainingLine.indexOf(' ', charsPerLine);
+            if (nextSpace > 0) {
+              // If there's a space later, break at the limit (word is too long)
+              breakPoint = charsPerLine;
+            } else {
+              // No spaces at all, take the whole line
+              breakPoint = remainingLine.length;
+            }
+          }
+          
+          wrappedLines.push(remainingLine.slice(0, breakPoint).trim());
+          remainingLine = remainingLine.slice(breakPoint).trim();
         }
       }
     }
@@ -287,9 +339,12 @@ function App() {
         // Enter only: Print
         e.preventDefault();
         if (rawText.trim()) {
-          setLastPrintedText(rawText.trim());
+          const textToPrint = rawText.trim();
+          setLastPrintedText(textToPrint);
           setLastPrintedFontSizeIndex(fontSizeIndex);
-          window.api.print(rawText.trim(), textAlign, fontSize, isBold, isUnderline);
+          // Apply word wrapping before sending to printer
+          const wrappedTextForPrinter = simulatePrinterWrapping(textToPrint, fontSize);
+          window.api.print(wrappedTextForPrinter, textAlign, fontSize, isBold, isUnderline);
           setNote('');
           setRawText('');
           setTimeout(adjustTextareaHeight, 0);
@@ -356,137 +411,148 @@ function App() {
   };
 
   return (
-    <div 
-      className="sticky-root" 
-      style={{ background: noteColor === 'yellow' ? '#fff9c4' : '#fff' }}
-    >
-      <div className="printer-status" onClick={handlePrinterStatusClick}>
-        {printerConnected ? (
-          <FiCheck className="printer-status-icon connected" title="Printer connected" />
-        ) : printerScanning ? (
-          <FiLoader className="printer-status-icon scanning" title="Scanning for printer..." />
-        ) : (
-          <FiX className="printer-status-icon disconnected" title="Click to scan for printer" />
-        )}
+    <div className="sticky-root">
+      <div className="controls-header">
+        <div className="printer-status" onClick={handlePrinterStatusClick}>
+          {printerConnected ? (
+            <FiCheck className="printer-status-icon connected" size={20} title="Printer connected" />
+          ) : printerScanning ? (
+            <FiLoader className="printer-status-icon scanning" size={20} title="Scanning for printer..." />
+          ) : (
+            <FiX className="printer-status-icon disconnected" size={20} title="Click to scan for printer" />
+          )}
+        </div>
+
+        <div className="font-controls">
+          {/* Font size controls */}
+          <Tooltip shortcut="⌘-">
+            <button
+              className={`font-size-btn ${fontSizeIndex === 0 ? 'disabled' : ''}`}
+              onClick={() => setFontSizeIndex(prev => Math.max(0, prev - 1))}
+              disabled={fontSizeIndex === 0}
+              title="Decrease font size"
+            >
+              <FiMinus size={18} />
+            </button>
+          </Tooltip>
+          
+          <button
+            className="font-size-display"
+            title={`Font size: ${fontSize}pt`}
+            disabled
+          >
+            <span style={{ 
+              fontSize: `${Math.min(20, fontSize / 2)}px`, 
+              fontWeight: 'bold',
+              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif'
+            }}>
+              T
+            </span>
+          </button>
+          
+          <Tooltip shortcut="⌘+">
+            <button
+              className={`font-size-btn ${fontSizeIndex === FONT_SIZES.length - 1 ? 'disabled' : ''}`}
+              onClick={() => setFontSizeIndex(prev => Math.min(FONT_SIZES.length - 1, prev + 1))}
+              disabled={fontSizeIndex === FONT_SIZES.length - 1}
+              title="Increase font size"
+            >
+              <FiPlus size={18} />
+            </button>
+          </Tooltip>
+          
+          <div className="alignment-divider" />
+          
+          {/* Bold and Underline */}
+          <Tooltip shortcut="⌘B">
+            <button 
+              className={`format-btn ${isBold ? 'active' : ''}`}
+              onClick={() => setIsBold(!isBold)}
+              title="Bold"
+            >
+              <FiBold size={18} />
+            </button>
+          </Tooltip>
+          <Tooltip shortcut="⌘U">
+            <button 
+              className={`format-btn ${isUnderline ? 'active' : ''}`}
+              onClick={() => setIsUnderline(!isUnderline)}
+              title="Underline"
+            >
+              <FiUnderline size={18} />
+            </button>
+          </Tooltip>
+          
+          <div className="alignment-divider" />
+          
+          {/* Alignment buttons */}
+          <Tooltip shortcut="⌘⇧L">
+            <button 
+              className={`align-btn ${textAlign === 'left' ? 'active' : ''}`}
+              onClick={() => setTextAlign('left')}
+              title="Align left"
+            >
+              <FiAlignLeft size={18} />
+            </button>
+          </Tooltip>
+          <Tooltip shortcut="⌘⇧E">
+            <button 
+              className={`align-btn ${textAlign === 'center' ? 'active' : ''}`}
+              onClick={() => setTextAlign('center')}
+              title="Align center"
+            >
+              <FiAlignCenter size={18} />
+            </button>
+          </Tooltip>
+          <Tooltip shortcut="⌘⇧R">
+            <button 
+              className={`align-btn ${textAlign === 'right' ? 'active' : ''}`}
+              onClick={() => setTextAlign('right')}
+              title="Align right"
+            >
+              <FiAlignRight size={18} />
+            </button>
+          </Tooltip>
+          
+          <div className="alignment-divider" />
+          
+          {/* Word wrap toggle */}
+          <button 
+            className={`format-btn ${wordWrap ? 'active' : ''}`}
+            onClick={() => setWordWrap(!wordWrap)}
+            title={wordWrap ? "Word wrap on (preserves whole words)" : "Word wrap off (breaks anywhere)"}
+          >
+            <MdWrapText size={18} />
+          </button>
+        </div>
+
+        <button 
+          className={`format-btn ${noteColor === 'yellow' ? 'active' : ''}`}
+          onClick={toggleColor}
+          title={`Switch to ${noteColor === 'white' ? 'yellow' : 'white'} sticky note`}
+        >
+          <IoColorPaletteOutline size={18} />
+        </button>
       </div>
 
-      <textarea
-        className="note-area"
-        ref={previewRef}
-        style={{ 
-          fontSize: `${fontSize}pt`, 
-          textAlign,
-          fontWeight: isBold ? 'bold' : 'normal',
-          textDecoration: isUnderline ? 'underline' : 'none'
-        }}
-        value={note}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        placeholder="TYPE HERE"
-      />
-
-      <button 
-        className="color-toggle-btn" 
-        onClick={toggleColor}
-        title={`Switch to ${noteColor === 'white' ? 'yellow' : 'white'} sticky note`}
+      <div 
+        className="paper-container" 
+        style={{ background: noteColor === 'yellow' ? '#fff9c4' : '#ffffff' }}
       >
-        {noteColor === 'white' ? (
-          <FiCircle size={18} />
-        ) : (
-          <FaCircle size={18} />
-        )}
-      </button>
-
-      <div className="font-controls">
-        {/* Font size controls */}
-        <Tooltip shortcut="⌘-">
-          <button
-            className={`font-size-btn ${fontSizeIndex === 0 ? 'disabled' : ''}`}
-            onClick={() => setFontSizeIndex(prev => Math.max(0, prev - 1))}
-            disabled={fontSizeIndex === 0}
-            title="Decrease font size"
-          >
-            <FiMinus size={14} />
-          </button>
-        </Tooltip>
-        
-        <button
-          className="font-size-display"
-          title={`Font size: ${fontSize}pt`}
-          disabled
-        >
-          <span style={{ 
-            fontSize: `${Math.min(20, fontSize / 2)}px`, 
-            fontWeight: 'bold',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif'
-          }}>
-            T
-          </span>
-        </button>
-        
-        <Tooltip shortcut="⌘+">
-          <button
-            className={`font-size-btn ${fontSizeIndex === FONT_SIZES.length - 1 ? 'disabled' : ''}`}
-            onClick={() => setFontSizeIndex(prev => Math.min(FONT_SIZES.length - 1, prev + 1))}
-            disabled={fontSizeIndex === FONT_SIZES.length - 1}
-            title="Increase font size"
-          >
-            <FiPlus size={14} />
-          </button>
-        </Tooltip>
-        
-        <div className="alignment-divider" />
-        
-        {/* Bold and Underline */}
-        <Tooltip shortcut="⌘B">
-          <button 
-            className={`format-btn ${isBold ? 'active' : ''}`}
-            onClick={() => setIsBold(!isBold)}
-            title="Bold"
-          >
-            <FiBold size={14} />
-          </button>
-        </Tooltip>
-        <Tooltip shortcut="⌘U">
-          <button 
-            className={`format-btn ${isUnderline ? 'active' : ''}`}
-            onClick={() => setIsUnderline(!isUnderline)}
-            title="Underline"
-          >
-            <FiUnderline size={14} />
-          </button>
-        </Tooltip>
-        
-        <div className="alignment-divider" />
-        
-        {/* Alignment buttons */}
-        <Tooltip shortcut="⌘⇧L">
-          <button 
-            className={`align-btn ${textAlign === 'left' ? 'active' : ''}`}
-            onClick={() => setTextAlign('left')}
-            title="Align left"
-          >
-            <FiAlignLeft size={14} />
-          </button>
-        </Tooltip>
-        <Tooltip shortcut="⌘⇧E">
-          <button 
-            className={`align-btn ${textAlign === 'center' ? 'active' : ''}`}
-            onClick={() => setTextAlign('center')}
-            title="Align center"
-          >
-            <FiAlignCenter size={14} />
-          </button>
-        </Tooltip>
-        <Tooltip shortcut="⌘⇧R">
-          <button 
-            className={`align-btn ${textAlign === 'right' ? 'active' : ''}`}
-            onClick={() => setTextAlign('right')}
-            title="Align right"
-          >
-            <FiAlignRight size={14} />
-          </button>
-        </Tooltip>
+        <textarea
+          className="note-area"
+          ref={previewRef}
+          style={{ 
+            fontSize: `${fontSize}pt`, 
+            textAlign,
+            fontWeight: isBold ? 'bold' : 'normal',
+            textDecoration: isUnderline ? 'underline' : 'none'
+          }}
+          value={note}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          placeholder="TYPE HERE"
+        />
       </div>
 
       {lastPrintedText && (
