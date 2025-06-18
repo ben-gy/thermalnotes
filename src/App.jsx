@@ -103,15 +103,14 @@ function App() {
       // Set the height
       previewRef.current.style.height = scrollHeight + 'px';
       
-      // Calculate total window height with fixed values
+      // Calculate total window height to match visual margins
       // Fixed components:
       // 44px - controls header
-      // 15px - paper margin top
+      // 15px - paper margin top (matches sides)
       // 20px - paper padding top
       // 20px - paper padding bottom  
-      // 15px - paper margin bottom
-      // 30px - extra buffer for window chrome and safety
-      const fixedHeight = 44 + 15 + 20 + 20 + 15 + 30;
+      // 15px - paper margin bottom (matches sides)
+      const fixedHeight = 44 + 15 + 20 + 20 + 15;
       const windowHeight = fixedHeight + scrollHeight;
       const windowWidth = 332;
       
@@ -146,9 +145,9 @@ function App() {
       }
     }, 50);
     
-    // Set initial window size with same fixed calculation
+    // Set initial window size with same calculation (no buffer)
     // Using estimated initial scrollHeight of 24px for one line
-    const initialHeight = 44 + 15 + 20 + 20 + 15 + 30 + 24; // Fixed components + estimated content
+    const initialHeight = 44 + 15 + 20 + 20 + 15 + 24; // Fixed components + estimated content
     window.api.resizeWindow(initialHeight, 332);
   }, []);
 
