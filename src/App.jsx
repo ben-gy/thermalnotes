@@ -1,21 +1,82 @@
 import { useEffect, useRef, useState } from 'react';
-import { FiRefreshCw, FiCircle, FiPlus, FiMinus, FiCheck, FiX, FiLoader, FiAlignLeft, FiAlignCenter, FiAlignRight } from 'react-icons/fi';
+import { FiRefreshCw, FiCircle, FiPlus, FiMinus, FiCheck, FiX, FiLoader, FiAlignLeft, FiAlignCenter, FiAlignRight, FiBold, FiUnderline, FiType } from 'react-icons/fi';
+import { MdFormatSize } from 'react-icons/md';
+import { AiOutlineFontSize } from 'react-icons/ai';
 import { FaCircle } from 'react-icons/fa';
 import './index.css';
 
+// Custom font size icon component
+const FontSizeIcon = ({ size }) => {
+  const sizeMap = {
+    tiny: 8,
+    small: 10,
+    regular: 12,
+    large: 14,
+    xlarge: 16
+  };
+  
+  return (
+    <span style={{ fontSize: `${sizeMap[size]}px`, fontWeight: 'bold', fontFamily: 'Arial' }}>
+      T
+    </span>
+  );
+};
+
+// Tooltip component for keyboard shortcuts
+const Tooltip = ({ shortcut, children }) => {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const timeoutRef = useRef(null);
+  
+  const handleMouseEnter = () => {
+    timeoutRef.current = setTimeout(() => {
+      setShowTooltip(true);
+    }, 1000); // Show after 1 second
+  };
+  
+  const handleMouseLeave = () => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    setShowTooltip(false);
+  };
+  
+  return (
+    <div className="tooltip-wrapper" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+      {children}
+      {showTooltip && (
+        <div className="tooltip">
+          {shortcut}
+        </div>
+      )}
+    </div>
+  );
+};
+
 function App() {
+  // Font size presets - defined first to avoid initialization errors
+  const FONT_SIZES = [16, 20, 28, 36, 48]; // tiny, small, regular, large, xlarge
+  const DEFAULT_FONT_SIZE_INDEX = 2; // regular (28pt)
+  
   const [note, setNote] = useState('');
   const [rawText, setRawText] = useState(''); // Store original text for printing
   const [lastPrintedText, setLastPrintedText] = useState('');
+  const [lastPrintedFontSizeIndex, setLastPrintedFontSizeIndex] = useState(DEFAULT_FONT_SIZE_INDEX);
   const [noteColor, setNoteColor] = useState(() => {
     return localStorage.getItem('noteColor') || 'white';
   });
-  const [fontSize, setFontSize] = useState(() => {
-    return parseInt(localStorage.getItem('fontSize')) || 30;
+  
+  const [fontSizeIndex, setFontSizeIndex] = useState(() => {
+    const saved = localStorage.getItem('fontSizeIndex');
+    return saved ? parseInt(saved) : DEFAULT_FONT_SIZE_INDEX;
   });
+  const fontSize = FONT_SIZES[fontSizeIndex];
   const [textAlign, setTextAlign] = useState(() => {
     return localStorage.getItem('textAlign') || 'center';
   });
+  // Note: Bold and underline currently apply to all text. 
+  // To support selection-based formatting, we'd need to switch from <textarea> to contenteditable or a rich text editor
+  const [isBold, setIsBold] = useState(false);
+  const [isUnderline, setIsUnderline] = useState(false);
   const [printerConnected, setPrinterConnected] = useState(false);
   const [printerScanning, setPrinterScanning] = useState(false);
   const [showIPDialog, setShowIPDialog] = useState(false);
@@ -67,13 +128,65 @@ function App() {
 
   // Save font size preference to localStorage
   useEffect(() => {
-    localStorage.setItem('fontSize', fontSize.toString());
-  }, [fontSize]);
+    localStorage.setItem('fontSizeIndex', fontSizeIndex.toString());
+  }, [fontSizeIndex]);
 
   // Save text alignment preference to localStorage
   useEffect(() => {
     localStorage.setItem('textAlign', textAlign);
   }, [textAlign]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyboardShortcut = (e) => {
+      // Check for Cmd (Mac) or Ctrl (Windows/Linux)
+      const isCtrlCmd = e.metaKey || e.ctrlKey;
+      
+      if (isCtrlCmd) {
+        switch (e.key.toLowerCase()) {
+          case 'b':
+            e.preventDefault();
+            setIsBold(!isBold);
+            break;
+          case 'u':
+            e.preventDefault();
+            setIsUnderline(!isUnderline);
+            break;
+          case '-':
+          case '_':
+            e.preventDefault();
+            setFontSizeIndex(prev => Math.max(0, prev - 1));
+            break;
+          case '+':
+          case '=':
+            e.preventDefault();
+            setFontSizeIndex(prev => Math.min(FONT_SIZES.length - 1, prev + 1));
+            break;
+          case 'l':
+            if (e.shiftKey) {
+              e.preventDefault();
+              setTextAlign('left');
+            }
+            break;
+          case 'e':
+            if (e.shiftKey) {
+              e.preventDefault();
+              setTextAlign('center');
+            }
+            break;
+          case 'r':
+            if (e.shiftKey) {
+              e.preventDefault();
+              setTextAlign('right');
+            }
+            break;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyboardShortcut);
+    return () => window.removeEventListener('keydown', handleKeyboardShortcut);
+  }, [isBold, isUnderline, fontSizeIndex]);
 
   // Initialize printer status and set up listeners
   useEffect(() => {
@@ -110,46 +223,40 @@ function App() {
   }, []);
 
   // Get characters per line based on font size for EPSON TM-m30III
-  // These values are based on EPSON specifications and your actual test
+  // These values are based on actual testing with different escpos size multipliers
   const getCharsPerLine = (fontSizePt) => {
-    // At size(2,2) in escpos, different font sizes give different character counts
-    if (fontSizePt >= 32) return 16;      // 32pt and above = 16 chars (verified by your test)
-    else if (fontSizePt >= 28) return 18; // 28-31pt = ~18 chars
-    else if (fontSizePt >= 24) return 20; // 24-27pt = ~20 chars
-    else if (fontSizePt >= 20) return 24; // 20-23pt = ~24 chars
-    else return 30;                       // 16-19pt = ~30 chars
+    // Matches the escpos size() we send to printer
+    if (fontSizePt >= 48) return 10;      // X-Large: size(3,3) = ~10 chars  
+    else if (fontSizePt >= 36) return 16; // Large: size(2,2) = 16 chars
+    else if (fontSizePt >= 28) return 20; // Regular: size(2,2) = ~20 chars
+    else if (fontSizePt >= 20) return 32; // Small: size(1,1) = ~32 chars
+    else return 40;                        // Tiny: size(1,1) = ~40 chars
   };
 
   const simulatePrinterWrapping = (text, fontSizePt) => {
     const charsPerLine = getCharsPerLine(fontSizePt);
     
-    // Process the text to match exactly how the thermal printer will wrap it
-    const result = [];
-    let currentLine = '';
+    // Split text by manual line breaks first
+    const lines = text.split('\n');
+    const wrappedLines = [];
     
-    for (let i = 0; i < text.length; i++) {
-      const char = text[i];
-      
-      if (char === '\n') {
-        // Manual line break - add current line and start new one
-        result.push(currentLine);
-        currentLine = '';
-      } else if (currentLine.length >= charsPerLine) {
-        // Line is full - wrap to next line
-        result.push(currentLine);
-        currentLine = char;
+    // Process each line separately
+    for (const line of lines) {
+      if (line.length === 0) {
+        // Preserve empty lines
+        wrappedLines.push('');
+      } else if (line.length <= charsPerLine) {
+        // Line fits, add as-is
+        wrappedLines.push(line);
       } else {
-        // Add character to current line
-        currentLine += char;
+        // Line needs wrapping
+        for (let i = 0; i < line.length; i += charsPerLine) {
+          wrappedLines.push(line.slice(i, i + charsPerLine));
+        }
       }
     }
     
-    // Add the last line if it has content
-    if (currentLine.length > 0) {
-      result.push(currentLine);
-    }
-    
-    return result.join('\n');
+    return wrappedLines.join('\n');
   };
 
   const handleChange = (e) => {
@@ -161,28 +268,38 @@ function App() {
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      if (rawText.trim()) {
-        setLastPrintedText(rawText.trim());
-        window.api.print(rawText.trim(), textAlign); // Send text and alignment to printer
-        setNote('');
-        setRawText('');
-        setTimeout(adjustTextareaHeight, 0);
+    if (e.key === 'Enter') {
+      if (e.shiftKey) {
+        // Shift+Enter: Insert new line
+        e.preventDefault();
+        const textarea = e.target;
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const newText = rawText.substring(0, start) + '\n' + rawText.substring(end);
+        setRawText(newText);
+        setNote(simulatePrinterWrapping(newText, fontSize));
+        // Set cursor position after the new line
+        setTimeout(() => {
+          textarea.selectionStart = textarea.selectionEnd = start + 1;
+          adjustTextareaHeight();
+        }, 0);
+      } else {
+        // Enter only: Print
+        e.preventDefault();
+        if (rawText.trim()) {
+          setLastPrintedText(rawText.trim());
+          setLastPrintedFontSizeIndex(fontSizeIndex);
+          window.api.print(rawText.trim(), textAlign, fontSize, isBold, isUnderline);
+          setNote('');
+          setRawText('');
+          setTimeout(adjustTextareaHeight, 0);
+        }
       }
     }
   };
 
   const toggleColor = () => {
     setNoteColor(noteColor === 'white' ? 'yellow' : 'white');
-  };
-
-  const increaseFontSize = () => {
-    setFontSize(prev => Math.min(prev + 2, 60)); // Max 60pt
-  };
-
-  const decreaseFontSize = () => {
-    setFontSize(prev => Math.max(prev - 2, 16)); // Min 16pt
   };
 
   const handlePrinterStatusClick = async () => {
@@ -256,11 +373,16 @@ function App() {
       <textarea
         className="note-area"
         ref={previewRef}
-        style={{ fontSize: `${fontSize}pt`, textAlign }}
+        style={{ 
+          fontSize: `${fontSize}pt`, 
+          textAlign,
+          fontWeight: isBold ? 'bold' : 'normal',
+          textDecoration: isUnderline ? 'underline' : 'none'
+        }}
         value={note}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        placeholder="Your text…"
+        placeholder="TYPE HERE"
       />
 
       <button 
@@ -276,45 +398,95 @@ function App() {
       </button>
 
       <div className="font-controls">
-        <button 
-          className="font-btn" 
-          onClick={decreaseFontSize}
-          title="Decrease font size"
+        {/* Font size controls */}
+        <Tooltip shortcut="⌘-">
+          <button
+            className={`font-size-btn ${fontSizeIndex === 0 ? 'disabled' : ''}`}
+            onClick={() => setFontSizeIndex(prev => Math.max(0, prev - 1))}
+            disabled={fontSizeIndex === 0}
+            title="Decrease font size"
+          >
+            <FiMinus size={14} />
+          </button>
+        </Tooltip>
+        
+        <button
+          className="font-size-display"
+          title={`Font size: ${fontSize}pt`}
+          disabled
         >
-          <FiMinus size={14} />
+          <span style={{ 
+            fontSize: `${Math.min(20, fontSize / 2)}px`, 
+            fontWeight: 'bold',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif'
+          }}>
+            T
+          </span>
         </button>
-        <span className="font-size-display">{fontSize}pt</span>
-        <button 
-          className="font-btn" 
-          onClick={increaseFontSize}
-          title="Increase font size"
-        >
-          <FiPlus size={14} />
-        </button>
+        
+        <Tooltip shortcut="⌘+">
+          <button
+            className={`font-size-btn ${fontSizeIndex === FONT_SIZES.length - 1 ? 'disabled' : ''}`}
+            onClick={() => setFontSizeIndex(prev => Math.min(FONT_SIZES.length - 1, prev + 1))}
+            disabled={fontSizeIndex === FONT_SIZES.length - 1}
+            title="Increase font size"
+          >
+            <FiPlus size={14} />
+          </button>
+        </Tooltip>
         
         <div className="alignment-divider" />
         
-        <button 
-          className={`align-btn ${textAlign === 'left' ? 'active' : ''}`}
-          onClick={() => setTextAlign('left')}
-          title="Align left"
-        >
-          <FiAlignLeft size={14} />
-        </button>
-        <button 
-          className={`align-btn ${textAlign === 'center' ? 'active' : ''}`}
-          onClick={() => setTextAlign('center')}
-          title="Align center"
-        >
-          <FiAlignCenter size={14} />
-        </button>
-        <button 
-          className={`align-btn ${textAlign === 'right' ? 'active' : ''}`}
-          onClick={() => setTextAlign('right')}
-          title="Align right"
-        >
-          <FiAlignRight size={14} />
-        </button>
+        {/* Bold and Underline */}
+        <Tooltip shortcut="⌘B">
+          <button 
+            className={`format-btn ${isBold ? 'active' : ''}`}
+            onClick={() => setIsBold(!isBold)}
+            title="Bold"
+          >
+            <FiBold size={14} />
+          </button>
+        </Tooltip>
+        <Tooltip shortcut="⌘U">
+          <button 
+            className={`format-btn ${isUnderline ? 'active' : ''}`}
+            onClick={() => setIsUnderline(!isUnderline)}
+            title="Underline"
+          >
+            <FiUnderline size={14} />
+          </button>
+        </Tooltip>
+        
+        <div className="alignment-divider" />
+        
+        {/* Alignment buttons */}
+        <Tooltip shortcut="⌘⇧L">
+          <button 
+            className={`align-btn ${textAlign === 'left' ? 'active' : ''}`}
+            onClick={() => setTextAlign('left')}
+            title="Align left"
+          >
+            <FiAlignLeft size={14} />
+          </button>
+        </Tooltip>
+        <Tooltip shortcut="⌘⇧E">
+          <button 
+            className={`align-btn ${textAlign === 'center' ? 'active' : ''}`}
+            onClick={() => setTextAlign('center')}
+            title="Align center"
+          >
+            <FiAlignCenter size={14} />
+          </button>
+        </Tooltip>
+        <Tooltip shortcut="⌘⇧R">
+          <button 
+            className={`align-btn ${textAlign === 'right' ? 'active' : ''}`}
+            onClick={() => setTextAlign('right')}
+            title="Align right"
+          >
+            <FiAlignRight size={14} />
+          </button>
+        </Tooltip>
       </div>
 
       {lastPrintedText && (
@@ -322,7 +494,8 @@ function App() {
           className="refresh-btn" 
           onClick={() => {
             setRawText(lastPrintedText);
-            setNote(simulatePrinterWrapping(lastPrintedText, fontSize));
+            const lastFontSize = FONT_SIZES[lastPrintedFontSizeIndex];
+            setNote(simulatePrinterWrapping(lastPrintedText, lastFontSize));
           }}
           title="Restore last printed text"
         >

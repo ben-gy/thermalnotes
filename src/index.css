@@ -117,7 +117,7 @@ button.secondary {
   padding: 0;
   box-sizing: border-box;
   resize: none;
-  font-family: 'Courier New', monospace; /* Use monospace to match thermal printer */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; /* Modern sans-serif */
   white-space: pre;
   overflow-wrap: normal; /* Don't break words, let our JS handle wrapping */
   outline: none;
@@ -126,7 +126,7 @@ button.secondary {
   border-style: dashed;
   border-spacing: 8px;
   background: transparent;
-  line-height: 1.2;
+  line-height: 1.5; /* Better line spacing for readability */
   overflow: hidden;
 }
 
@@ -161,7 +161,7 @@ button.secondary {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 4px; /* Consistent small gap between controls */
   opacity: 0.5;
   font-weight: bold;
   transition: opacity 0.15s;
@@ -172,22 +172,76 @@ button.secondary {
   opacity: 0.7;
 }
 
-.font-btn {
+.font-size-btn {
   background: none;
   border: none;
   color: var(--accent);
   cursor: pointer;
-  padding: 2px;
+  padding: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+  width: 20px;
+  height: 20px;
+}
+
+.font-size-btn:hover {
+  opacity: 0.8;
+}
+
+.font-size-btn.active {
+  opacity: 1;
+  color: var(--primary);
+}
+
+.font-size-btn.disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.font-size-btn.disabled:hover {
+  opacity: 0.3;
 }
 
 .font-size-display {
-  font-size: 12px;
+  background: none;
+  border: none;
   color: var(--accent);
-  min-width: 28px;
-  text-align: center;
+  padding: 4px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  min-width: 24px;
+  height: 20px;
+}
+
+
+
+.format-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+  width: 20px;
+  height: 20px;
+}
+
+.format-btn:hover {
+  opacity: 0.8;
+}
+
+.format-btn.active {
+  opacity: 1;
+  color: var(--primary);
 }
 
 .alignment-divider {
@@ -195,7 +249,7 @@ button.secondary {
   height: 16px;
   background: var(--accent);
   opacity: 0.3;
-  margin: 0 8px;
+  margin: 0 4px; /* Consistent spacing with gap */
 }
 
 .align-btn {
@@ -203,12 +257,14 @@ button.secondary {
   border: none;
   color: var(--accent);
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0.5;
   transition: opacity 0.15s;
+  width: 20px;
+  height: 20px;
 }
 
 .align-btn:hover {
@@ -394,4 +450,37 @@ button.secondary {
 .link-btn:disabled {
   opacity: 0.2;
   cursor: not-allowed;
+}
+
+.tooltip-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.tooltip {
+  position: absolute;
+  bottom: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.tooltip::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 4px solid rgba(0, 0, 0, 0.8);
 } 

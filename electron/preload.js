@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
-  print: (text, alignment) => ipcRenderer.invoke('print-ticket', text, alignment),
+  print: (text, alignment, fontSize, isBold, isUnderline) => ipcRenderer.invoke('print-ticket', text, alignment, fontSize, isBold, isUnderline),
   reprint: () => ipcRenderer.invoke('reprint-last'),
   listPorts: () => ipcRenderer.invoke('list-serial-ports'),
   savePrinterPath: (path) => ipcRenderer.invoke('save-printer-path', path),

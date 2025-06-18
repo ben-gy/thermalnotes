@@ -9,14 +9,17 @@ const store = new Store();
 let escpos; // resolved at runtime
 let lastTicket = '';
 let lastAlignment = 'center';
+let lastFontSize = 30;
+let lastBold = false;
+let lastUnderline = false;
 let printerConnected = false;
 let printerCheckInterval = null;
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 480, // Increased to show full 16 characters at 32pt
+    width: 600, // Increased to accommodate all controls
     height: 420,
-    minWidth: 480, // Prevent resizing too narrow
+    minWidth: 600, // Prevent resizing too narrow
     minHeight: 160,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -401,10 +404,13 @@ async function connectPrinter() {
   throw new Error('Printer not configured');
 }
 
-ipcMain.handle('print-ticket', async (_event, text, alignment = 'center') => {
-  console.log('[PRINTER] Print request received:', text.length, 'characters, align:', alignment);
+ipcMain.handle('print-ticket', async (_event, text, alignment = 'center', fontSize = 30, isBold = false, isUnderline = false) => {
+  console.log('[PRINTER] Print request received:', text.length, 'characters, align:', alignment, 'fontSize:', fontSize, 'bold:', isBold, 'underline:', isUnderline);
   lastTicket = text;
   lastAlignment = alignment; // Store for reprint
+  lastFontSize = fontSize; // Store for reprint
+  lastBold = isBold; // Store for reprint
+  lastUnderline = isUnderline; // Store for reprint
 
   try {
     console.log('[PRINTER] Connecting to printer...');
@@ -431,11 +437,39 @@ ipcMain.handle('print-ticket', async (_event, text, alignment = 'center') => {
           if (alignment === 'left') alignCode = 'LT';
           else if (alignment === 'right') alignCode = 'RT';
           
+          // Convert font size to escpos size multiplier
+          let sizeMultiplier = 1; // default
+          if (fontSize >= 48) sizeMultiplier = 3;      // X-Large (48pt)
+          else if (fontSize >= 28) sizeMultiplier = 2; // Regular (28pt) and Large (36pt)
+          else sizeMultiplier = 1;                      // Tiny (16pt) and Small (20pt)
+          
+          console.log('[PRINTER] Using size multiplier:', sizeMultiplier, 'for fontSize:', fontSize);
+          
+          // Apply styles
+          printer.align(alignCode);
+          
+          // Apply bold if needed
+          if (isBold) {
+            printer.style('B');
+          } else {
+            printer.style('NORMAL');
+          }
+          
+          // Apply underline if needed
+          if (isUnderline) {
+            printer.underline(true);
+          }
+          
           printer
-            .align(alignCode)
-            .style('NORMAL')
-            .size(2, 2) // 40pt approx.
-            .text(padded)
+            .size(sizeMultiplier, sizeMultiplier)
+            .text(padded);
+            
+          // Reset underline after text
+          if (isUnderline) {
+            printer.underline(false);
+          }
+            
+          printer
             .cut()
             .close(() => {
               console.log('[PRINTER] Print job completed successfully');
@@ -475,11 +509,39 @@ ipcMain.handle('reprint-last', async () => {
           if (lastAlignment === 'left') alignCode = 'LT';
           else if (lastAlignment === 'right') alignCode = 'RT';
           
+          // Convert font size to escpos size multiplier
+          let sizeMultiplier = 1; // default
+          if (lastFontSize >= 48) sizeMultiplier = 3;      // X-Large (48pt)
+          else if (lastFontSize >= 28) sizeMultiplier = 2; // Regular (28pt) and Large (36pt)
+          else sizeMultiplier = 1;                          // Tiny (16pt) and Small (20pt)
+          
+          console.log('[PRINTER] Reprint using size multiplier:', sizeMultiplier, 'for fontSize:', lastFontSize);
+          
+          // Apply styles
+          printer.align(alignCode);
+          
+          // Apply bold if needed
+          if (lastBold) {
+            printer.style('B');
+          } else {
+            printer.style('NORMAL');
+          }
+          
+          // Apply underline if needed
+          if (lastUnderline) {
+            printer.underline(true);
+          }
+          
           printer
-            .align(alignCode)
-            .style('NORMAL')
-            .size(2, 2)
-            .text(padded)
+            .size(sizeMultiplier, sizeMultiplier)
+            .text(padded);
+            
+          // Reset underline after text
+          if (lastUnderline) {
+            printer.underline(false);
+          }
+            
+          printer
             .cut()
             .close(() => {
               console.log('[PRINTER] Reprint completed successfully');
@@ -516,8 +578,8 @@ ipcMain.handle('resize-window', (_event, height) => {
   const win = BrowserWindow.getFocusedWindow();
   if (win) {
     const bounds = win.getBounds();
-    // Ensure minimum width of 480 to show full printer width
-    const width = Math.max(480, bounds.width);
+    // Ensure minimum width of 600 to show all controls
+    const width = Math.max(600, bounds.width);
     win.setContentSize(width, Math.max(160, Math.min(height, 800)));
   }
 });
