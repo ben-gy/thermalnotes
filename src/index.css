@@ -237,6 +237,21 @@ button.secondary {
   opacity: 0.8;
 }
 
+.printer-status-icon.scanning {
+  color: #007aff;
+  opacity: 0.8;
+  animation: rotate 1s linear infinite;
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .printer-status:hover .printer-status-icon {
   opacity: 1;
 }

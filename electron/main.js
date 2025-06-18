@@ -73,22 +73,74 @@ async function findEpsonThermalPrinter() {
     }
     
     // Scan common IP ranges for EPSON printers
-    console.log('[PRINTER] Scanning network for printers...');
-    const possibleIPs = await scanForNetworkPrinters();
-    console.log('[PRINTER] IPs to test:', possibleIPs);
+    console.log('[PRINTER] Starting parallel network scan...');
     
-    for (const ip of possibleIPs) {
-      if (await testNetworkPrinterConnection(ip)) {
-        console.log('[PRINTER] Found EPSON printer at IP:', ip);
-        store.set('printerIP', ip);
-        return ip;
+    // Notify UI that scanning has started
+    const win = BrowserWindow.getFocusedWindow();
+    if (win) {
+      win.webContents.send('printer-scanning-changed', true);
+    }
+    
+    const possibleIPs = await scanForNetworkPrinters();
+    console.log(`[PRINTER] Testing ${possibleIPs.length} IPs in parallel...`);
+    
+    // Test all IPs in parallel with batching to avoid overwhelming the network
+    const batchSize = 10; // Test 10 IPs simultaneously
+    const batches = [];
+    
+    // Split IPs into batches
+    for (let i = 0; i < possibleIPs.length; i += batchSize) {
+      batches.push(possibleIPs.slice(i, i + batchSize));
+    }
+    
+    // Test each batch in parallel
+    for (const batch of batches) {
+      console.log(`[PRINTER] Testing batch: ${batch.join(', ')}`);
+      
+      // Test all IPs in this batch simultaneously
+      const results = await Promise.allSettled(
+        batch.map(async (ip) => {
+          const connected = await testNetworkPrinterConnection(ip);
+          return { ip, connected };
+        })
+      );
+      
+      // Check if any succeeded
+      for (const result of results) {
+        if (result.status === 'fulfilled' && result.value.connected) {
+          const foundIP = result.value.ip;
+          console.log('[PRINTER] ✓ Found EPSON printer at IP:', foundIP);
+          store.set('printerIP', foundIP);
+          
+          // Notify UI that scanning has finished successfully
+          const successWin = BrowserWindow.getFocusedWindow();
+          if (successWin) {
+            successWin.webContents.send('printer-scanning-changed', false);
+          }
+          
+          return foundIP;
+        }
       }
     }
     
-    console.log('[PRINTER] No printers found during network scan');
+    console.log('[PRINTER] No printers found during parallel network scan');
+    
+    // Notify UI that scanning has finished
+    const finalWin = BrowserWindow.getFocusedWindow();
+    if (finalWin) {
+      finalWin.webContents.send('printer-scanning-changed', false);
+    }
+    
     return null;
   } catch (err) {
     console.error('[PRINTER] Error finding printer:', err);
+    
+    // Notify UI that scanning has finished (even on error)
+    const errorWin = BrowserWindow.getFocusedWindow();
+    if (errorWin) {
+      errorWin.webContents.send('printer-scanning-changed', false);
+    }
+    
     return null;
   }
 }
@@ -111,20 +163,24 @@ async function scanForNetworkPrinters() {
         // Get network range (assume /24 subnet)
         const networkBase = connection.address.split('.').slice(0, 3).join('.');
         
-        // Common IP ranges for printers
+        // Expanded IP ranges for printers - covers most common printer addresses
         const commonPrinterIPs = [
-          `${networkBase}.100`,
-          `${networkBase}.101`,
-          `${networkBase}.102`,
-          `${networkBase}.200`,
-          `${networkBase}.201`,
-          `${networkBase}.202`,
-          `${networkBase}.210`,
-          `${networkBase}.50`,
-          `${networkBase}.51`,
-          `${networkBase}.10`,
-          `${networkBase}.20`,
-          `${networkBase}.181`, // Include the specific IP the user tried
+          // 100-110 range (very common for printers)
+          `${networkBase}.100`, `${networkBase}.101`, `${networkBase}.102`, `${networkBase}.103`, `${networkBase}.104`, `${networkBase}.105`,
+          `${networkBase}.106`, `${networkBase}.107`, `${networkBase}.108`, `${networkBase}.109`, `${networkBase}.110`,
+          
+          // 180-190 range (common for network devices)
+          `${networkBase}.180`, `${networkBase}.181`, `${networkBase}.182`, `${networkBase}.183`, `${networkBase}.184`, `${networkBase}.185`,
+          `${networkBase}.186`, `${networkBase}.187`, `${networkBase}.188`, `${networkBase}.189`, `${networkBase}.190`,
+          
+          // 200-210 range (another common printer range)
+          `${networkBase}.200`, `${networkBase}.201`, `${networkBase}.202`, `${networkBase}.203`, `${networkBase}.204`, `${networkBase}.205`,
+          `${networkBase}.206`, `${networkBase}.207`, `${networkBase}.208`, `${networkBase}.209`, `${networkBase}.210`,
+          
+          // Other common addresses
+          `${networkBase}.50`, `${networkBase}.51`, `${networkBase}.52`, `${networkBase}.53`, `${networkBase}.54`, `${networkBase}.55`,
+          `${networkBase}.10`, `${networkBase}.11`, `${networkBase}.12`, `${networkBase}.20`, `${networkBase}.21`, `${networkBase}.22`,
+          `${networkBase}.250`, `${networkBase}.251`, `${networkBase}.252`, `${networkBase}.253`, `${networkBase}.254`,
         ];
         
         console.log(`[PRINTER] Adding IPs for network ${networkBase}.x:`, commonPrinterIPs);
@@ -139,7 +195,6 @@ async function scanForNetworkPrinters() {
 }
 
 async function testNetworkPrinterConnection(ip) {
-  console.log(`[PRINTER] Testing connection to ${ip}:9100`);
   try {
     if (!escpos) escpos = require('escpos');
     const networkAdapter = require('escpos-network');
@@ -148,24 +203,21 @@ async function testNetworkPrinterConnection(ip) {
     
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
-        console.log(`[PRINTER] Connection timeout for ${ip}:9100`);
         resolve(false);
-      }, 5000); // Increased to 5 second timeout
+      }, 2000); // Reduced to 2 second timeout for faster parallel scanning
       
       device.open((err) => {
         clearTimeout(timeout);
         if (err) {
-          console.log(`[PRINTER] Connection failed to ${ip}:9100 - Error:`, err.message || err);
           resolve(false);
         } else {
-          console.log(`[PRINTER] Successfully connected to ${ip}:9100`);
+          console.log(`[PRINTER] ✓ Found printer at ${ip}:9100`);
           device.close();
           resolve(true);
         }
       });
     });
   } catch (err) {
-    console.log(`[PRINTER] Exception testing connection to ${ip}:9100 - Error:`, err.message || err);
     return false;
   }
 }
@@ -288,16 +340,21 @@ async function checkPrinterStatus() {
 }
 
 function startPrinterAutoDetection(win) {
-  // Clear any stale connection data on startup to force fresh detection
-  console.log('[PRINTER] Starting auto-detection - clearing stale connection data');
-  store.delete('printerIP');
-  store.delete('printerPath');
+  console.log('[PRINTER] Starting auto-detection...');
+  
+  // Try saved connection first - don't clear on startup
+  const savedIP = store.get('printerIP', '');
+  if (savedIP) {
+    console.log('[PRINTER] Will test saved IP first:', savedIP);
+  } else {
+    console.log('[PRINTER] No saved IP found, will scan network');
+  }
   
   // Initial check
   checkPrinterStatus();
   
-  // Check every 10 seconds (reduced frequency to avoid spam)
-  printerCheckInterval = setInterval(checkPrinterStatus, 10000);
+  // Check every 30 seconds (less frequent since we're remembering IPs)
+  printerCheckInterval = setInterval(checkPrinterStatus, 30000);
 }
 
 /* ---------------------------  Printing logic  --------------------------- */
@@ -468,6 +525,11 @@ ipcMain.handle('refresh-printer-status', async () => {
 
 ipcMain.handle('scan-network-printers', async () => {
   try {
+    // When user manually scans, clear saved connections to force fresh detection
+    console.log('[PRINTER] Manual scan requested - clearing saved connections');
+    store.delete('printerIP');
+    store.delete('printerPath');
+    
     const possibleIPs = await scanForNetworkPrinters();
     const foundPrinters = [];
     

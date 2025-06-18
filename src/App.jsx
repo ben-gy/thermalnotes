@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FiRefreshCw, FiCircle, FiPlus, FiMinus, FiCheck, FiX } from 'react-icons/fi';
+import { FiRefreshCw, FiCircle, FiPlus, FiMinus, FiCheck, FiX, FiLoader } from 'react-icons/fi';
 import { FaCircle } from 'react-icons/fa';
 import './index.css';
 
@@ -13,6 +13,7 @@ function App() {
     return parseInt(localStorage.getItem('fontSize')) || 30;
   });
   const [printerConnected, setPrinterConnected] = useState(false);
+  const [printerScanning, setPrinterScanning] = useState(false);
   const [showIPDialog, setShowIPDialog] = useState(false);
   const [ipInput, setIpInput] = useState('');
   const previewRef = useRef(null);
@@ -78,13 +79,24 @@ function App() {
     const handleStatusChange = (event, connected) => {
       console.log('[UI] Printer status changed:', connected);
       setPrinterConnected(connected);
+      if (connected !== 'scanning') {
+        setPrinterScanning(false);
+      }
+    };
+
+    // Listen for scanning status changes
+    const handleScanningChange = (event, scanning) => {
+      console.log('[UI] Printer scanning status:', scanning);
+      setPrinterScanning(scanning);
     };
 
     window.api.onPrinterStatusChanged(handleStatusChange);
+    window.api.onPrinterScanningChanged(handleScanningChange);
 
     // Cleanup listener on unmount
     return () => {
       window.api.offPrinterStatusChanged(handleStatusChange);
+      window.api.offPrinterScanningChanged(handleScanningChange);
     };
   }, []);
 
@@ -119,23 +131,31 @@ function App() {
 
   const handlePrinterStatusClick = async () => {
     console.log('[UI] Printer status clicked, connected:', printerConnected);
-    if (!printerConnected) {
+    if (!printerConnected && !printerScanning) {
       console.log('[UI] Starting network scan...');
-      // Try to scan for network printers
-      const foundPrinters = await window.api.scanNetworkPrinters();
-      console.log('[UI] Network scan result:', foundPrinters);
+      setPrinterScanning(true);
       
-      if (foundPrinters.length > 0) {
-        // Use the first found printer
-        console.log('[UI] Using first found printer:', foundPrinters[0]);
-        await window.api.setPrinterIP(foundPrinters[0]);
-        console.log('[UI] Printer IP set, refreshing status...');
-        // Refresh status
-        await window.api.refreshPrinterStatus();
-      } else {
-        console.log('[UI] No printers found, showing manual input dialog');
-        // Show IP input dialog
-        setShowIPDialog(true);
+      try {
+        // Try to scan for network printers
+        const foundPrinters = await window.api.scanNetworkPrinters();
+        console.log('[UI] Network scan result:', foundPrinters);
+        
+        if (foundPrinters.length > 0) {
+          // Use the first found printer
+          console.log('[UI] Using first found printer:', foundPrinters[0]);
+          await window.api.setPrinterIP(foundPrinters[0]);
+          console.log('[UI] Printer IP set, refreshing status...');
+          // Refresh status
+          await window.api.refreshPrinterStatus();
+        } else {
+          console.log('[UI] No printers found, showing manual input dialog');
+          setPrinterScanning(false);
+          // Show IP input dialog
+          setShowIPDialog(true);
+        }
+      } catch (error) {
+        console.error('[UI] Scan failed:', error);
+        setPrinterScanning(false);
       }
     }
   };
@@ -170,6 +190,8 @@ function App() {
       <div className="printer-status" onClick={handlePrinterStatusClick}>
         {printerConnected ? (
           <FiCheck className="printer-status-icon connected" title="Printer connected" />
+        ) : printerScanning ? (
+          <FiLoader className="printer-status-icon scanning" title="Scanning for printer..." />
         ) : (
           <FiX className="printer-status-icon disconnected" title="Click to scan for printer" />
         )}

@@ -14,4 +14,6 @@ contextBridge.exposeInMainWorld('api', {
   setPrinterIP: (ip) => ipcRenderer.invoke('set-printer-ip', ip),
   onPrinterStatusChanged: (callback) => ipcRenderer.on('printer-status-changed', callback),
   offPrinterStatusChanged: (callback) => ipcRenderer.removeListener('printer-status-changed', callback),
+  onPrinterScanningChanged: (callback) => ipcRenderer.on('printer-scanning-changed', callback),
+  offPrinterScanningChanged: (callback) => ipcRenderer.removeListener('printer-scanning-changed', callback),
 }); 
