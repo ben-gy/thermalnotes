@@ -707,17 +707,19 @@ function App() {
   return (
     <div className="sticky-root">
       <div className="controls-header">
-        <div className="printer-status" onClick={handlePrinterStatusClick}>
-          {printerConnected ? (
-            <FiCheck className="printer-status-icon connected" size={20} title="Printer connected" />
-          ) : printerScanning ? (
-            <FiLoader className="printer-status-icon scanning" size={20} title="Scanning for printer..." />
-          ) : (
-            <FiX className="printer-status-icon disconnected" size={20} title="Click to scan for printer" />
-          )}
-        </div>
-
         <div className="font-controls">
+          <div className="printer-status" onClick={handlePrinterStatusClick}>
+            {printerConnected ? (
+              <FiCheck className="printer-status-icon connected" size={20} title="Printer connected" />
+            ) : printerScanning ? (
+              <FiLoader className="printer-status-icon scanning" size={20} title="Scanning for printer..." />
+            ) : (
+              <FiX className="printer-status-icon disconnected" size={20} title="Click to scan for printer" />
+            )}
+          </div>
+
+          <div className="alignment-divider" />
+
           {/* Font size controls */}
           <Tooltip shortcut="⌘1">
             <button
@@ -764,7 +766,7 @@ function App() {
           <div className="alignment-divider" />
           
           {/* Bold and Underline */}
-          <Tooltip shortcut="⌘B">
+          {/* <Tooltip shortcut="⌘B">
             <button 
               className={`format-btn ${isSelectionBold ? 'active' : ''}`}
               onClick={toggleBold}
@@ -781,9 +783,9 @@ function App() {
             >
               <FiUnderline size={18} />
             </button>
-          </Tooltip>
+          </Tooltip> */}
           
-          <div className="alignment-divider" />
+          {/* <div className="alignment-divider" /> */}
           
           {/* Alignment buttons */}
           <Tooltip shortcut="⌘⇧L">
@@ -824,15 +826,15 @@ function App() {
           >
             <MdWrapText size={18} />
           </button>
-        </div>
 
-        <button 
-          className={`format-btn ${noteColor === 'yellow' ? 'active' : ''}`}
-          onClick={toggleColor}
-          title={`Switch to ${noteColor === 'white' ? 'yellow' : 'white'} sticky note`}
-        >
-          <IoColorPaletteOutline size={18} />
-        </button>
+          <button 
+            className={`format-btn ${noteColor === 'yellow' ? 'active' : ''}`}
+            onClick={toggleColor}
+            title={`Switch to ${noteColor === 'white' ? 'yellow' : 'white'} sticky note`}
+          >
+            <IoColorPaletteOutline size={18} />
+          </button>
+        </div>
       </div>
 
       <div 
