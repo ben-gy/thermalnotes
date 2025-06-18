@@ -1,28 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { FiRefreshCw, FiCircle, FiPlus, FiMinus, FiCheck, FiX, FiLoader, FiAlignLeft, FiAlignCenter, FiAlignRight, FiBold, FiUnderline, FiType } from 'react-icons/fi';
+import { FiRefreshCw, FiCheck, FiX, FiLoader, FiAlignLeft, FiAlignCenter, FiAlignRight, FiBold, FiUnderline } from 'react-icons/fi';
 import { MdWrapText } from 'react-icons/md';
-import { MdFormatSize } from 'react-icons/md';
-import { AiOutlineFontSize } from 'react-icons/ai';
-import { FaCircle } from 'react-icons/fa';
 import { IoColorPaletteOutline } from 'react-icons/io5';
 import './index.css';
 
-// Custom font size icon component
-const FontSizeIcon = ({ size }) => {
-  const sizeMap = {
-    tiny: 8,
-    small: 10,
-    regular: 12,
-    large: 14,
-    xlarge: 16
-  };
-  
-  return (
-    <span style={{ fontSize: `${sizeMap[size]}px`, fontWeight: 'bold', fontFamily: 'Arial' }}>
-      T
-    </span>
-  );
-};
+
 
 // Tooltip component for keyboard shortcuts
 const Tooltip = ({ shortcut, children }) => {
@@ -55,23 +37,29 @@ const Tooltip = ({ shortcut, children }) => {
 };
 
 function App() {
-  // Font size presets - defined first to avoid initialization errors
-  const FONT_SIZES = [16, 20, 28, 36, 48]; // tiny, small, regular, large, xlarge
-  const DEFAULT_FONT_SIZE_INDEX = 2; // regular (28pt)
+  // Font size presets - simplified to 3 distinct sizes
+  const FONT_SIZES = [20, 28, 40]; // small, medium, large
+  const FONT_SIZE_LABELS = ['Small', 'Medium', 'Large'];
+  const DEFAULT_FONT_SIZE_INDEX = 1; // medium (28pt)
   
-  const [note, setNote] = useState('');
-  const [rawText, setRawText] = useState(''); // Store original text for printing
+  const [lastPrintedHTML, setLastPrintedHTML] = useState('');
   const [lastPrintedText, setLastPrintedText] = useState('');
-  const [lastPrintedFontSizeIndex, setLastPrintedFontSizeIndex] = useState(DEFAULT_FONT_SIZE_INDEX);
   const [noteColor, setNoteColor] = useState(() => {
     return localStorage.getItem('noteColor') || 'white';
   });
   
+  // Default document font size
   const [fontSizeIndex, setFontSizeIndex] = useState(() => {
     const saved = localStorage.getItem('fontSizeIndex');
-    return saved ? parseInt(saved) : DEFAULT_FONT_SIZE_INDEX;
+    if (saved) {
+      const index = parseInt(saved);
+      // Ensure index is valid for new 3-size array
+      return Math.min(index, FONT_SIZES.length - 1);
+    }
+    return DEFAULT_FONT_SIZE_INDEX;
   });
   const fontSize = FONT_SIZES[fontSizeIndex];
+  
   const [textAlign, setTextAlign] = useState(() => {
     return localStorage.getItem('textAlign') || 'center';
   });
@@ -79,29 +67,29 @@ function App() {
     const saved = localStorage.getItem('wordWrap');
     return saved === null ? true : saved === 'true'; // Default to true (word wrapping on)
   });
-  // Note: Bold and underline currently apply to all text. 
-  // To support selection-based formatting, we'd need to switch from <textarea> to contenteditable or a rich text editor
-  const [isBold, setIsBold] = useState(false);
-  const [isUnderline, setIsUnderline] = useState(false);
+  
   const [printerConnected, setPrinterConnected] = useState(false);
   const [printerScanning, setPrinterScanning] = useState(false);
   const [showIPDialog, setShowIPDialog] = useState(false);
   const [ipInput, setIpInput] = useState('');
-  const previewRef = useRef(null);
+  const editorRef = useRef(null);
+  const [isSelectionBold, setIsSelectionBold] = useState(false);
+  const [isSelectionUnderline, setIsSelectionUnderline] = useState(false);
+  const [selectionFontSize, setSelectionFontSize] = useState(null);
 
-  // Auto-resize textarea height based on content
-  const adjustTextareaHeight = () => {
-    if (previewRef.current) {
+  // Auto-resize editor height based on content
+  const adjustEditorHeight = () => {
+    if (editorRef.current) {
       // Force a reflow to ensure accurate measurements
-      previewRef.current.style.height = 'auto';
+      editorRef.current.style.height = 'auto';
       // Force browser to recalculate
-      void previewRef.current.offsetHeight;
+      void editorRef.current.offsetHeight;
       
       // Get the actual content height - use ceil to handle fractional pixels
-      const scrollHeight = Math.ceil(previewRef.current.scrollHeight);
+      const scrollHeight = Math.ceil(editorRef.current.scrollHeight);
       
       // Set the height
-      previewRef.current.style.height = scrollHeight + 'px';
+      editorRef.current.style.height = scrollHeight + 'px';
       
       // Calculate total window height to match visual margins
       // Fixed components:
@@ -118,30 +106,92 @@ function App() {
     }
   };
 
+  // Update selection state
+  const updateSelectionState = () => {
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0 && !selection.isCollapsed) {
+      const range = selection.getRangeAt(0);
+      const container = range.commonAncestorContainer;
+      
+      // Check if selection is within our editor
+      if (editorRef.current && editorRef.current.contains(container)) {
+        // Check bold
+        const isBold = document.queryCommandState('bold');
+        setIsSelectionBold(isBold);
+        
+        // Check underline
+        const isUnderline = document.queryCommandState('underline');
+        setIsSelectionUnderline(isUnderline);
+        
+        // Check font size - this is more complex with contenteditable
+        // For now, we'll just check if all selected text has the same font size
+        // This is a simplified approach
+        try {
+          const computedStyle = window.getComputedStyle(
+            container.nodeType === Node.TEXT_NODE ? container.parentElement : container
+          );
+          const currentSize = parseInt(computedStyle.fontSize);
+          const sizeIndex = FONT_SIZES.findIndex(size => Math.abs(size - currentSize) < 2);
+          setSelectionFontSize(sizeIndex >= 0 ? sizeIndex : null);
+        } catch (e) {
+          setSelectionFontSize(null);
+        }
+      }
+    } else {
+      setIsSelectionBold(false);
+      setIsSelectionUnderline(false);
+      setSelectionFontSize(null);
+    }
+  };
+
   // Resize window to fit content
   useEffect(() => {
     // Small delay to ensure proper rendering
     const timeoutId = setTimeout(() => {
-      adjustTextareaHeight();
+      adjustEditorHeight();
     }, 10);
     
     return () => clearTimeout(timeoutId);
-  }, [note, fontSize, fontSizeIndex]);
+  }, [fontSize]); // Add fontSize as dependency to resize when it changes
 
-  // Re-wrap text when word wrap setting changes
+  // Get characters per line based on font size for EPSON TM-m30III
+  const getCharsPerLine = (fontSizePt) => {
+    // Calibrated based on actual printer output
+    if (fontSizePt >= 40) return 14;      // Large: ~14 chars  
+    else if (fontSizePt >= 28) return 22; // Medium: ~22 chars
+    else return 30;                        // Small: ~30 chars
+  };
+
+  // Monitor content changes
   useEffect(() => {
-    if (rawText) {
-      const wrappedText = simulatePrinterWrapping(rawText, fontSize, wordWrap);
-      setNote(wrappedText);
+    const handleInput = () => {
+      adjustEditorHeight();
+    };
+    
+    const editor = editorRef.current;
+    if (editor) {
+      editor.addEventListener('input', handleInput);
+      
+      // Also monitor selection changes
+      document.addEventListener('selectionchange', updateSelectionState);
+      
+      return () => {
+        editor.removeEventListener('input', handleInput);
+        document.removeEventListener('selectionchange', updateSelectionState);
+      };
     }
-  }, [wordWrap, fontSize, rawText]); // Also trigger when rawText changes
+  }, []);
 
   // Focus on load
   useEffect(() => {
     setTimeout(() => {
-      if (previewRef.current) {
-        previewRef.current.focus();
-        adjustTextareaHeight();
+      if (editorRef.current) {
+        // Ensure contenteditable starts with a paragraph
+        if (editorRef.current.innerHTML === '') {
+          editorRef.current.innerHTML = '<p><br></p>';
+        }
+        editorRef.current.focus();
+        adjustEditorHeight();
       }
     }, 50);
     
@@ -151,25 +201,67 @@ function App() {
     window.api.resizeWindow(initialHeight, 332);
   }, []);
 
-  // Save color preference to localStorage
+  // Save preferences to localStorage
   useEffect(() => {
     localStorage.setItem('noteColor', noteColor);
   }, [noteColor]);
 
-  // Save font size preference to localStorage
   useEffect(() => {
     localStorage.setItem('fontSizeIndex', fontSizeIndex.toString());
   }, [fontSizeIndex]);
 
-  // Save text alignment preference to localStorage
   useEffect(() => {
     localStorage.setItem('textAlign', textAlign);
   }, [textAlign]);
 
-  // Save word wrap preference to localStorage
   useEffect(() => {
     localStorage.setItem('wordWrap', wordWrap.toString());
   }, [wordWrap]);
+
+  // Apply formatting commands
+  const applyFormat = (command, value = null) => {
+    editorRef.current.focus();
+    document.execCommand(command, false, value);
+    updateSelectionState();
+  };
+
+  // Toggle bold for selection
+  const toggleBold = () => {
+    applyFormat('bold');
+  };
+
+  // Toggle underline for selection
+  const toggleUnderline = () => {
+    applyFormat('underline');
+  };
+
+  // Change font size for selection
+  const changeSelectionFontSize = (newSizeIndex) => {
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0 && !selection.isCollapsed) {
+      const range = selection.getRangeAt(0);
+      
+      // Create a span with the new font size
+      const span = document.createElement('span');
+      span.style.fontSize = `${FONT_SIZES[newSizeIndex]}pt`;
+      
+      // Extract and wrap the selected content
+      try {
+        span.appendChild(range.extractContents());
+        range.insertNode(span);
+        
+        // Restore selection
+        selection.removeAllRanges();
+        const newRange = document.createRange();
+        newRange.selectNodeContents(span);
+        selection.addRange(newRange);
+      } catch (e) {
+        console.error('Failed to change font size:', e);
+      }
+    }
+    updateSelectionState();
+    adjustEditorHeight(); // Ensure editor resizes after changing text size
+  };
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -181,21 +273,44 @@ function App() {
         switch (e.key.toLowerCase()) {
           case 'b':
             e.preventDefault();
-            setIsBold(!isBold);
+            toggleBold();
             break;
           case 'u':
             e.preventDefault();
-            setIsUnderline(!isUnderline);
+            toggleUnderline();
             break;
-          case '-':
-          case '_':
+          case '1':
             e.preventDefault();
-            setFontSizeIndex(prev => Math.max(0, prev - 1));
+            // If there's a selection, change its size to small
+            const selection1 = window.getSelection();
+            if (selection1.rangeCount > 0 && !selection1.isCollapsed) {
+              changeSelectionFontSize(0); // Small
+            } else {
+              setFontSizeIndex(0);
+              setTimeout(adjustEditorHeight, 0);
+            }
             break;
-          case '+':
-          case '=':
+          case '2':
             e.preventDefault();
-            setFontSizeIndex(prev => Math.min(FONT_SIZES.length - 1, prev + 1));
+            // If there's a selection, change its size to medium
+            const selection2 = window.getSelection();
+            if (selection2.rangeCount > 0 && !selection2.isCollapsed) {
+              changeSelectionFontSize(1); // Medium
+            } else {
+              setFontSizeIndex(1);
+              setTimeout(adjustEditorHeight, 0);
+            }
+            break;
+          case '3':
+            e.preventDefault();
+            // If there's a selection, change its size to large
+            const selection3 = window.getSelection();
+            if (selection3.rangeCount > 0 && !selection3.isCollapsed) {
+              changeSelectionFontSize(2); // Large
+            } else {
+              setFontSizeIndex(2);
+              setTimeout(adjustEditorHeight, 0);
+            }
             break;
           case 'l':
             if (e.shiftKey) {
@@ -215,13 +330,18 @@ function App() {
               setTextAlign('right');
             }
             break;
+          case 'enter':
+            // Cmd+Enter to print
+            e.preventDefault();
+            handlePrint();
+            break;
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyboardShortcut);
     return () => window.removeEventListener('keydown', handleKeyboardShortcut);
-  }, [isBold, isUnderline, fontSizeIndex]);
+  }, [isSelectionBold, isSelectionUnderline, fontSizeIndex, selectionFontSize]);
 
   // Initialize printer status and set up listeners
   useEffect(() => {
@@ -257,18 +377,7 @@ function App() {
     };
   }, []);
 
-  // Get characters per line based on font size for EPSON TM-m30III
-  // These values are based on actual testing with different escpos size multipliers
-  const getCharsPerLine = (fontSizePt) => {
-    // Matches the escpos size() we send to printer
-    if (fontSizePt >= 48) return 10;      // X-Large: size(3,3) = ~10 chars  
-    else if (fontSizePt >= 36) return 16; // Large: size(2,2) = 16 chars
-    else if (fontSizePt >= 28) return 20; // Regular: size(2,2) = ~20 chars
-    else if (fontSizePt >= 20) return 32; // Small: size(1,1) = ~32 chars
-    else return 40;                        // Tiny: size(1,1) = ~40 chars
-  };
-
-  const simulatePrinterWrapping = (text, fontSizePt, useWordWrap = wordWrap) => {
+  const simulatePrinterWrapping = (text, fontSizePt) => {
     const charsPerLine = getCharsPerLine(fontSizePt);
     
     // Split text by manual line breaks first
@@ -283,41 +392,46 @@ function App() {
       } else if (line.length <= charsPerLine) {
         // Line fits, add as-is
         wrappedLines.push(line);
-      } else if (!useWordWrap) {
+      } else if (!wordWrap) {
         // Character wrapping (original behavior)
         for (let i = 0; i < line.length; i += charsPerLine) {
           wrappedLines.push(line.slice(i, i + charsPerLine));
         }
       } else {
-        // Word wrapping - don't break words
-        let remainingLine = line;
-        while (remainingLine.length > 0) {
-          if (remainingLine.length <= charsPerLine) {
-            wrappedLines.push(remainingLine);
-            break;
-          }
+        // Word wrapping - preserve whole words
+        const words = line.split(' ');
+        let currentLine = '';
+        
+        for (let i = 0; i < words.length; i++) {
+          const word = words[i];
+          const testLine = currentLine ? currentLine + ' ' + word : word;
           
-          // Find the last space within the character limit
-          let breakPoint = charsPerLine;
-          let lastSpace = remainingLine.lastIndexOf(' ', charsPerLine);
-          
-          if (lastSpace > 0) {
-            // Break at the last space
-            breakPoint = lastSpace;
+          if (testLine.length <= charsPerLine) {
+            // Word fits on current line
+            currentLine = testLine;
           } else {
-            // No space found, look for the next space after the limit
-            let nextSpace = remainingLine.indexOf(' ', charsPerLine);
-            if (nextSpace > 0) {
-              // If there's a space later, break at the limit (word is too long)
-              breakPoint = charsPerLine;
+            // Word doesn't fit
+            if (currentLine) {
+              // Save current line and start new one
+              wrappedLines.push(currentLine);
+              currentLine = word;
             } else {
-              // No spaces at all, take the whole line
-              breakPoint = remainingLine.length;
+              // Word is longer than line width - force break it
+              let longWord = word;
+              while (longWord.length > charsPerLine) {
+                wrappedLines.push(longWord.slice(0, charsPerLine));
+                longWord = longWord.slice(charsPerLine);
+              }
+              if (longWord) {
+                currentLine = longWord;
+              }
             }
           }
-          
-          wrappedLines.push(remainingLine.slice(0, breakPoint).trim());
-          remainingLine = remainingLine.slice(breakPoint).trim();
+        }
+        
+        // Don't forget the last line
+        if (currentLine) {
+          wrappedLines.push(currentLine);
         }
       }
     }
@@ -325,45 +439,211 @@ function App() {
     return wrappedLines.join('\n');
   };
 
-  const handleChange = (e) => {
-    const input = e.target.value;
-    setRawText(input); // Store raw input for printing
-    const wrappedText = simulatePrinterWrapping(input, fontSize);
-    setNote(wrappedText); // Display wrapped version
-    setTimeout(adjustTextareaHeight, 0); // Adjust height after state update
-  };
-
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       if (e.shiftKey) {
-        // Shift+Enter: Insert new line
+        // Shift+Enter: Create new paragraph
         e.preventDefault();
-        const textarea = e.target;
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        const newText = rawText.substring(0, start) + '\n' + rawText.substring(end);
-        setRawText(newText);
-        setNote(simulatePrinterWrapping(newText, fontSize));
-        // Set cursor position after the new line
-        setTimeout(() => {
-          textarea.selectionStart = textarea.selectionEnd = start + 1;
-          adjustTextareaHeight();
-        }, 0);
+        
+        // Get current selection
+        const selection = window.getSelection();
+        const range = selection.getRangeAt(0);
+        
+        // Create a new paragraph element
+        const newParagraph = document.createElement('p');
+        const br = document.createElement('br');
+        newParagraph.appendChild(br);
+        
+        // Insert the new paragraph after the current block
+        let currentBlock = range.commonAncestorContainer;
+        if (currentBlock.nodeType === Node.TEXT_NODE) {
+          currentBlock = currentBlock.parentNode;
+        }
+        
+        // Find the paragraph or div parent
+        while (currentBlock && currentBlock !== editorRef.current && 
+               currentBlock.tagName !== 'P' && currentBlock.tagName !== 'DIV') {
+          currentBlock = currentBlock.parentNode;
+        }
+        
+        if (currentBlock && currentBlock !== editorRef.current) {
+          currentBlock.parentNode.insertBefore(newParagraph, currentBlock.nextSibling);
+        } else {
+          editorRef.current.appendChild(newParagraph);
+        }
+        
+        // Move cursor to the new paragraph
+        const newRange = document.createRange();
+        newRange.setStart(newParagraph, 0);
+        newRange.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+        
+        adjustEditorHeight();
       } else {
         // Enter only: Print
         e.preventDefault();
-        if (rawText.trim()) {
-          const textToPrint = rawText.trim();
-          setLastPrintedText(textToPrint);
-          setLastPrintedFontSizeIndex(fontSizeIndex);
-          // Apply word wrapping before sending to printer
-          const wrappedTextForPrinter = simulatePrinterWrapping(textToPrint, fontSize);
-          window.api.print(wrappedTextForPrinter, textAlign, fontSize, isBold, isUnderline);
-          setNote('');
-          setRawText('');
-          setTimeout(adjustTextareaHeight, 0);
+        handlePrint();
+      }
+    }
+  };
+
+  const handlePaste = (e) => {
+    // Prevent default paste behavior
+    e.preventDefault();
+    
+    // Get plain text from clipboard
+    let text = '';
+    if (e.clipboardData || e.originalEvent?.clipboardData) {
+      text = (e.clipboardData || e.originalEvent.clipboardData).getData('text/plain');
+    } else if (window.clipboardData) {
+      // IE fallback
+      text = window.clipboardData.getData('Text');
+    }
+    
+    if (text) {
+      // Clean the text:
+      // 1. Remove any zero-width characters
+      text = text.replace(/[\u200B-\u200D\uFEFF]/g, '');
+      
+      // 2. Normalize whitespace (but preserve intentional line breaks)
+      text = text.replace(/\r\n/g, '\n'); // Windows line endings to Unix
+      text = text.replace(/\r/g, '\n');    // Old Mac line endings to Unix
+      
+      // 3. Remove any control characters except newlines and tabs
+      text = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+      
+      // 4. Convert tabs to spaces (4 spaces per tab)
+      text = text.replace(/\t/g, '    ');
+      
+      // 5. Trim trailing whitespace from each line
+      text = text.split('\n').map(line => line.trimEnd()).join('\n');
+      
+      // Insert the cleaned plain text
+      const selection = window.getSelection();
+      if (!selection.rangeCount) return;
+      
+      selection.deleteFromDocument();
+      
+      // Split text by newlines and insert as separate paragraphs if needed
+      const lines = text.split('\n');
+      
+      if (lines.length === 1) {
+        // Single line - just insert as text
+        const textNode = document.createTextNode(lines[0]);
+        selection.getRangeAt(0).insertNode(textNode);
+        
+        // Move cursor after inserted text
+        const range = document.createRange();
+        range.setStartAfter(textNode);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } else {
+        // Multiple lines - create paragraphs
+        const range = selection.getRangeAt(0);
+        let currentContainer = range.startContainer;
+        
+        // Find the current paragraph
+        while (currentContainer && currentContainer !== editorRef.current && 
+               currentContainer.nodeType !== Node.ELEMENT_NODE) {
+          currentContainer = currentContainer.parentNode;
+        }
+        
+        // Insert first line in current paragraph
+        if (lines[0]) {
+          const firstText = document.createTextNode(lines[0]);
+          range.insertNode(firstText);
+        }
+        
+        // Create new paragraphs for remaining lines
+        let lastElement = currentContainer;
+        for (let i = 1; i < lines.length; i++) {
+          const p = document.createElement('p');
+          if (lines[i]) {
+            p.textContent = lines[i];
+          } else {
+            p.appendChild(document.createElement('br'));
+          }
+          
+          if (lastElement && lastElement.parentNode) {
+            lastElement.parentNode.insertBefore(p, lastElement.nextSibling);
+          } else {
+            editorRef.current.appendChild(p);
+          }
+          lastElement = p;
+        }
+        
+        // Move cursor to end of last inserted paragraph
+        if (lastElement) {
+          const newRange = document.createRange();
+          newRange.selectNodeContents(lastElement);
+          newRange.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
         }
       }
+      
+      adjustEditorHeight();
+    }
+  };
+
+  // Convert HTML content to plain text for printing
+  const htmlToPlainText = (html) => {
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    
+    // Replace <br> with newlines
+    const brs = temp.getElementsByTagName('br');
+    for (let i = brs.length - 1; i >= 0; i--) {
+      brs[i].replaceWith('\n');
+    }
+    
+    // Replace </p><p> with double newlines for paragraphs
+    let text = temp.innerHTML;
+    text = text.replace(/<\/p>\s*<p[^>]*>/gi, '\n\n');
+    
+    // Remove all other HTML tags
+    text = text.replace(/<[^>]*>/g, '');
+    
+    // Decode HTML entities
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = text;
+    text = textarea.value;
+    
+    // Clean up extra whitespace
+    text = text.replace(/\n{3,}/g, '\n\n'); // Max 2 newlines in a row
+    text = text.trim();
+    
+    return text;
+  };
+
+  const handlePrint = () => {
+    const html = editorRef.current.innerHTML;
+    const text = htmlToPlainText(html);
+    
+    if (text.trim()) {
+      setLastPrintedHTML(html);
+      setLastPrintedText(text);
+      
+      // Debug logging
+      console.log('[PRINT] Original text:', text);
+      console.log('[PRINT] Font size:', fontSize, 'pt');
+      console.log('[PRINT] Chars per line:', getCharsPerLine(fontSize));
+      console.log('[PRINT] Word wrap enabled:', wordWrap);
+      
+      // Apply printer wrapping before sending to printer
+      const wrappedText = simulatePrinterWrapping(text.trim(), fontSize);
+      
+      console.log('[PRINT] Wrapped text:', wrappedText);
+      console.log('[PRINT] Wrapped lines:', wrappedText.split('\n'));
+      
+      window.api.print(wrappedText, textAlign, fontSize, false, false);
+      
+      // Clear the editor and start with a paragraph
+      editorRef.current.innerHTML = '<p><br></p>';
+      editorRef.current.focus();
+      adjustEditorHeight();
     }
   };
 
@@ -439,39 +719,45 @@ function App() {
 
         <div className="font-controls">
           {/* Font size controls */}
-          <Tooltip shortcut="⌘-">
+          <Tooltip shortcut="⌘1">
             <button
-              className={`font-size-btn ${fontSizeIndex === 0 ? 'disabled' : ''}`}
-              onClick={() => setFontSizeIndex(prev => Math.max(0, prev - 1))}
-              disabled={fontSizeIndex === 0}
-              title="Decrease font size"
+              className={`font-size-btn ${fontSizeIndex === 0 ? 'active' : ''}`}
+              onClick={() => {
+                setFontSizeIndex(0);
+                setTimeout(adjustEditorHeight, 0);
+              }}
+              title="Small font (20pt)"
+              style={{ fontSize: '12px' }}
             >
-              <FiMinus size={18} />
+              S
             </button>
           </Tooltip>
           
-          <button
-            className="font-size-display"
-            title={`Font size: ${fontSize}pt`}
-            disabled
-          >
-            <span style={{ 
-              fontSize: `${Math.min(20, fontSize / 2)}px`, 
-              fontWeight: 'bold',
-              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif'
-            }}>
-              T
-            </span>
-          </button>
-          
-          <Tooltip shortcut="⌘+">
+          <Tooltip shortcut="⌘2">
             <button
-              className={`font-size-btn ${fontSizeIndex === FONT_SIZES.length - 1 ? 'disabled' : ''}`}
-              onClick={() => setFontSizeIndex(prev => Math.min(FONT_SIZES.length - 1, prev + 1))}
-              disabled={fontSizeIndex === FONT_SIZES.length - 1}
-              title="Increase font size"
+              className={`font-size-btn ${fontSizeIndex === 1 ? 'active' : ''}`}
+              onClick={() => {
+                setFontSizeIndex(1);
+                setTimeout(adjustEditorHeight, 0);
+              }}
+              title="Medium font (28pt)"
+              style={{ fontSize: '14px' }}
             >
-              <FiPlus size={18} />
+              M
+            </button>
+          </Tooltip>
+          
+          <Tooltip shortcut="⌘3">
+            <button
+              className={`font-size-btn ${fontSizeIndex === 2 ? 'active' : ''}`}
+              onClick={() => {
+                setFontSizeIndex(2);
+                setTimeout(adjustEditorHeight, 0);
+              }}
+              title="Large font (40pt)"
+              style={{ fontSize: '16px' }}
+            >
+              L
             </button>
           </Tooltip>
           
@@ -480,8 +766,8 @@ function App() {
           {/* Bold and Underline */}
           <Tooltip shortcut="⌘B">
             <button 
-              className={`format-btn ${isBold ? 'active' : ''}`}
-              onClick={() => setIsBold(!isBold)}
+              className={`format-btn ${isSelectionBold ? 'active' : ''}`}
+              onClick={toggleBold}
               title="Bold"
             >
               <FiBold size={18} />
@@ -489,8 +775,8 @@ function App() {
           </Tooltip>
           <Tooltip shortcut="⌘U">
             <button 
-              className={`format-btn ${isUnderline ? 'active' : ''}`}
-              onClick={() => setIsUnderline(!isUnderline)}
+              className={`format-btn ${isSelectionUnderline ? 'active' : ''}`}
+              onClick={toggleUnderline}
               title="Underline"
             >
               <FiUnderline size={18} />
@@ -553,35 +839,34 @@ function App() {
         className="paper-container" 
         style={{ background: noteColor === 'yellow' ? '#fff9c4' : '#ffffff' }}
       >
-        <textarea
+        <div
           className="note-area"
-          ref={previewRef}
+          ref={editorRef}
+          contentEditable="true"
           style={{ 
             fontSize: `${fontSize}pt`, 
             textAlign,
-            fontWeight: isBold ? 'bold' : 'normal',
-            textDecoration: isUnderline ? 'underline' : 'none'
+            minHeight: '24px' // Ensure minimum height
           }}
-          value={note}
-          onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder="TYPE HERE"
+          onPaste={handlePaste}
+          data-placeholder="TYPE HERE"
         />
       </div>
 
-      {lastPrintedText && (
-        <button 
-          className="refresh-btn" 
-          onClick={() => {
-            setRawText(lastPrintedText);
-            const lastFontSize = FONT_SIZES[lastPrintedFontSizeIndex];
-            setNote(simulatePrinterWrapping(lastPrintedText, lastFontSize));
-          }}
-          title="Restore last printed text"
-        >
-          <FiRefreshCw size={16} />
-        </button>
-      )}
+              {lastPrintedHTML && (
+          <button 
+            className="refresh-btn" 
+            onClick={() => {
+              editorRef.current.innerHTML = lastPrintedHTML;
+              editorRef.current.focus();
+              adjustEditorHeight();
+            }}
+            title="Restore last printed text"
+          >
+            <FiRefreshCw size={16} />
+          </button>
+        )}
 
       {showIPDialog && (
         <div className="ip-dialog-overlay">

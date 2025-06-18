@@ -124,7 +124,7 @@ button.secondary {
   flex-direction: column;
   align-items: center;
   height: 100%; /* Fill exact window height, not minimum */
-  overflow: hidden; /* Ensure nothing extends outside */
+  overflow: visible; /* Changed from hidden to visible to allow tooltips */
 }
 
 .controls-header {
@@ -143,7 +143,7 @@ button.secondary {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   box-sizing: border-box;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible; /* Allow tooltips to show below */
   white-space: nowrap;
   /* Hide scrollbar but keep functionality */
   scrollbar-width: none; /* Firefox */
@@ -188,18 +188,79 @@ button.secondary {
   cursor: text;
   border: none; /* Remove border - paper container shows boundaries */
   background: transparent;
-  line-height: 1.2; /* Consistent line height relative to font size */
+  line-height: 1.1; /* Reduced from 1.2 for tighter line spacing */
   overflow: hidden;
   vertical-align: top; /* Ensure consistent vertical alignment */
   display: block; /* Ensure block display to prevent inline spacing */
+  position: relative; /* Add relative positioning for placeholder */
 }
 
-.note-area::placeholder {
+/* Placeholder for contenteditable */
+.note-area:empty:not(:focus)::before {
+  content: attr(data-placeholder);
   color: #5d4e37;
+  opacity: 0.3;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  text-align: inherit; /* Inherit alignment from parent */
 }
 
 .note-area:focus {
   outline: none;
+}
+
+/* Rich text formatting styles */
+.note-area p {
+  margin: 0 0 6px 0; /* Fixed pixel spacing - approximately 0.4 line height */
+  padding: 0;
+  display: block;
+}
+
+.note-area p:last-child {
+  margin-bottom: 0;
+}
+
+.note-area p:first-child {
+  margin-top: 0;
+}
+
+/* Also style divs the same way since contenteditable might create divs */
+.note-area div {
+  margin: 0 0 6px 0; /* Same fixed pixel spacing as paragraphs */
+  padding: 0;
+  display: block;
+}
+
+.note-area div:last-child {
+  margin-bottom: 0;
+}
+
+.note-area div:first-child {
+  margin-top: 0;
+}
+
+/* Ensure no margin on nested elements */
+.note-area p p,
+.note-area div div,
+.note-area p div,
+.note-area div p {
+  margin: 0;
+}
+
+.note-area br {
+  line-height: inherit;
+}
+
+.note-area span {
+  display: inline;
+}
+
+/* Ensure consistent font sizing in contenteditable */
+.note-area * {
+  line-height: inherit;
 }
 
 .font-controls {
@@ -231,6 +292,9 @@ button.secondary {
   width: 28px;
   height: 28px;
   border-radius: 4px;
+  font-weight: bold;
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
 }
 
 .font-size-btn:hover {
@@ -245,30 +309,9 @@ button.secondary {
   background: #e7f3ff;
 }
 
-.font-size-btn.disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  background: #f8f8f8;
-}
 
-.font-size-btn.disabled:hover {
-  opacity: 0.4;
-  background: #f8f8f8;
-}
 
-.font-size-display {
-  background: white;
-  border: 1px solid #e0e0e0;
-  color: var(--accent);
-  padding: 6px 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: default;
-  min-width: 32px;
-  height: 28px;
-  border-radius: 4px;
-}
+
 
 .format-btn {
   background: white;
@@ -527,8 +570,9 @@ button.secondary {
   border-radius: 4px;
   font-size: 12px;
   white-space: nowrap;
-  z-index: 1000;
+  z-index: 10000; /* Increased z-index */
   pointer-events: none;
+  opacity: 1; /* Ensure opacity is set */
 }
 
 .tooltip::before {
