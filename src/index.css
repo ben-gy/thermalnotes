@@ -114,13 +114,12 @@ button.secondary {
 .note-area {
   width: 100%;
   height: 1.2em;
-  padding: 0 20px;
+  padding: 0;
   box-sizing: border-box;
-  text-align: center;
   resize: none;
   font-family: 'Courier New', monospace; /* Use monospace to match thermal printer */
-  white-space: pre-wrap;
-  word-break: break-all; /* Break at exact character limit like thermal printer */
+  white-space: pre;
+  overflow-wrap: normal; /* Don't break words, let our JS handle wrapping */
   outline: none;
   cursor: text;
   border: 2px dashed rgba(59, 47, 0, 0.2);
@@ -166,6 +165,7 @@ button.secondary {
   opacity: 0.5;
   font-weight: bold;
   transition: opacity 0.15s;
+  white-space: nowrap;
 }
 
 .font-controls:hover {
@@ -188,6 +188,36 @@ button.secondary {
   color: var(--accent);
   min-width: 28px;
   text-align: center;
+}
+
+.alignment-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--accent);
+  opacity: 0.3;
+  margin: 0 8px;
+}
+
+.align-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 2px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.align-btn:hover {
+  opacity: 0.8;
+}
+
+.align-btn.active {
+  opacity: 1;
+  color: var(--primary);
 }
 
 .refresh-btn {

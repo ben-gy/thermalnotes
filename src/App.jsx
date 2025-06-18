@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import { FiRefreshCw, FiCircle, FiPlus, FiMinus, FiCheck, FiX, FiLoader } from 'react-icons/fi';
+import { FiRefreshCw, FiCircle, FiPlus, FiMinus, FiCheck, FiX, FiLoader, FiAlignLeft, FiAlignCenter, FiAlignRight } from 'react-icons/fi';
 import { FaCircle } from 'react-icons/fa';
 import './index.css';
 
 function App() {
   const [note, setNote] = useState('');
+  const [rawText, setRawText] = useState(''); // Store original text for printing
   const [lastPrintedText, setLastPrintedText] = useState('');
   const [noteColor, setNoteColor] = useState(() => {
     return localStorage.getItem('noteColor') || 'white';
   });
   const [fontSize, setFontSize] = useState(() => {
     return parseInt(localStorage.getItem('fontSize')) || 30;
+  });
+  const [textAlign, setTextAlign] = useState(() => {
+    return localStorage.getItem('textAlign') || 'center';
   });
   const [printerConnected, setPrinterConnected] = useState(false);
   const [printerScanning, setPrinterScanning] = useState(false);
@@ -66,6 +70,11 @@ function App() {
     localStorage.setItem('fontSize', fontSize.toString());
   }, [fontSize]);
 
+  // Save text alignment preference to localStorage
+  useEffect(() => {
+    localStorage.setItem('textAlign', textAlign);
+  }, [textAlign]);
+
   // Initialize printer status and set up listeners
   useEffect(() => {
     console.log('[UI] Initializing printer status...');
@@ -100,18 +109,65 @@ function App() {
     };
   }, []);
 
+  // Get characters per line based on font size for EPSON TM-m30III
+  // These values are based on EPSON specifications and your actual test
+  const getCharsPerLine = (fontSizePt) => {
+    // At size(2,2) in escpos, different font sizes give different character counts
+    if (fontSizePt >= 32) return 16;      // 32pt and above = 16 chars (verified by your test)
+    else if (fontSizePt >= 28) return 18; // 28-31pt = ~18 chars
+    else if (fontSizePt >= 24) return 20; // 24-27pt = ~20 chars
+    else if (fontSizePt >= 20) return 24; // 20-23pt = ~24 chars
+    else return 30;                       // 16-19pt = ~30 chars
+  };
+
+  const simulatePrinterWrapping = (text, fontSizePt) => {
+    const charsPerLine = getCharsPerLine(fontSizePt);
+    
+    // Process the text to match exactly how the thermal printer will wrap it
+    const result = [];
+    let currentLine = '';
+    
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      
+      if (char === '\n') {
+        // Manual line break - add current line and start new one
+        result.push(currentLine);
+        currentLine = '';
+      } else if (currentLine.length >= charsPerLine) {
+        // Line is full - wrap to next line
+        result.push(currentLine);
+        currentLine = char;
+      } else {
+        // Add character to current line
+        currentLine += char;
+      }
+    }
+    
+    // Add the last line if it has content
+    if (currentLine.length > 0) {
+      result.push(currentLine);
+    }
+    
+    return result.join('\n');
+  };
+
   const handleChange = (e) => {
-    setNote(e.target.value);
+    const input = e.target.value;
+    setRawText(input); // Store raw input for printing
+    const wrappedText = simulatePrinterWrapping(input, fontSize);
+    setNote(wrappedText); // Display wrapped version
     setTimeout(adjustTextareaHeight, 0); // Adjust height after state update
   };
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (note.trim()) {
-        setLastPrintedText(note.trim());
-        window.api.print(note.trim());
+      if (rawText.trim()) {
+        setLastPrintedText(rawText.trim());
+        window.api.print(rawText.trim(), textAlign); // Send text and alignment to printer
         setNote('');
+        setRawText('');
         setTimeout(adjustTextareaHeight, 0);
       }
     }
@@ -200,7 +256,7 @@ function App() {
       <textarea
         className="note-area"
         ref={previewRef}
-        style={{ fontSize: `${fontSize}pt` }}
+        style={{ fontSize: `${fontSize}pt`, textAlign }}
         value={note}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
@@ -235,12 +291,39 @@ function App() {
         >
           <FiPlus size={14} />
         </button>
+        
+        <div className="alignment-divider" />
+        
+        <button 
+          className={`align-btn ${textAlign === 'left' ? 'active' : ''}`}
+          onClick={() => setTextAlign('left')}
+          title="Align left"
+        >
+          <FiAlignLeft size={14} />
+        </button>
+        <button 
+          className={`align-btn ${textAlign === 'center' ? 'active' : ''}`}
+          onClick={() => setTextAlign('center')}
+          title="Align center"
+        >
+          <FiAlignCenter size={14} />
+        </button>
+        <button 
+          className={`align-btn ${textAlign === 'right' ? 'active' : ''}`}
+          onClick={() => setTextAlign('right')}
+          title="Align right"
+        >
+          <FiAlignRight size={14} />
+        </button>
       </div>
 
       {lastPrintedText && (
         <button 
           className="refresh-btn" 
-          onClick={() => setNote(lastPrintedText)}
+          onClick={() => {
+            setRawText(lastPrintedText);
+            setNote(simulatePrinterWrapping(lastPrintedText, fontSize));
+          }}
           title="Restore last printed text"
         >
           <FiRefreshCw size={16} />

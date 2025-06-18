@@ -8,13 +8,16 @@ const store = new Store();
 // Lazy-require escpos only when actually printing, because it needs native modules.
 let escpos; // resolved at runtime
 let lastTicket = '';
+let lastAlignment = 'center';
 let printerConnected = false;
 let printerCheckInterval = null;
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 360,
+    width: 480, // Increased to show full 16 characters at 32pt
     height: 420,
+    minWidth: 480, // Prevent resizing too narrow
+    minHeight: 160,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -398,9 +401,10 @@ async function connectPrinter() {
   throw new Error('Printer not configured');
 }
 
-ipcMain.handle('print-ticket', async (_event, text) => {
-  console.log('[PRINTER] Print request received:', text.length, 'characters');
+ipcMain.handle('print-ticket', async (_event, text, alignment = 'center') => {
+  console.log('[PRINTER] Print request received:', text.length, 'characters, align:', alignment);
   lastTicket = text;
+  lastAlignment = alignment; // Store for reprint
 
   try {
     console.log('[PRINTER] Connecting to printer...');
@@ -422,8 +426,13 @@ ipcMain.handle('print-ticket', async (_event, text) => {
         
         console.log('[PRINTER] Device opened, sending print job...');
         try {
+          // Convert alignment to escpos format
+          let alignCode = 'CT'; // center by default
+          if (alignment === 'left') alignCode = 'LT';
+          else if (alignment === 'right') alignCode = 'RT';
+          
           printer
-            .align('LT')
+            .align(alignCode)
             .style('NORMAL')
             .size(2, 2) // 40pt approx.
             .text(padded)
@@ -461,10 +470,21 @@ ipcMain.handle('reprint-last', async () => {
         
         console.log('[PRINTER] Device opened for reprint, sending...');
         try {
-          printer.size(2, 2).text(padded).cut().close(() => {
-            console.log('[PRINTER] Reprint completed successfully');
-            resolve();
-          });
+          // Convert alignment to escpos format
+          let alignCode = 'CT'; // center by default
+          if (lastAlignment === 'left') alignCode = 'LT';
+          else if (lastAlignment === 'right') alignCode = 'RT';
+          
+          printer
+            .align(alignCode)
+            .style('NORMAL')
+            .size(2, 2)
+            .text(padded)
+            .cut()
+            .close(() => {
+              console.log('[PRINTER] Reprint completed successfully');
+              resolve();
+            });
         } catch (printErr) {
           console.error('[PRINTER] Reprint command failed:', printErr);
           reject(printErr);
@@ -496,7 +516,9 @@ ipcMain.handle('resize-window', (_event, height) => {
   const win = BrowserWindow.getFocusedWindow();
   if (win) {
     const bounds = win.getBounds();
-    win.setContentSize(bounds.width, Math.max(160, Math.min(height, 800)));
+    // Ensure minimum width of 480 to show full printer width
+    const width = Math.max(480, bounds.width);
+    win.setContentSize(width, Math.max(160, Math.min(height, 800)));
   }
 });
 
