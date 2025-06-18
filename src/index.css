@@ -118,9 +118,9 @@ button.secondary {
   box-sizing: border-box;
   text-align: center;
   resize: none;
-  font-family: inherit;
+  font-family: 'Courier New', monospace; /* Use monospace to match thermal printer */
   white-space: pre-wrap;
-  word-wrap: break-word;
+  word-break: break-all; /* Break at exact character limit like thermal printer */
   outline: none;
   cursor: text;
   border: 2px dashed rgba(59, 47, 0, 0.2);

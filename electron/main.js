@@ -407,10 +407,7 @@ ipcMain.handle('print-ticket', async (_event, text) => {
     const { printer, device } = await connectPrinter();
     console.log('[PRINTER] Printer connected, preparing text...');
     
-    const padded = text
-      .split('\n')
-      .map((l) => ' '.repeat(2) + l) // Just 2 spaces for small left margin
-      .join('\n') + '\n\n\n'; // Add bottom margin with 3 line feeds
+    const padded = text + '\n\n\n'; // Remove indent, just add bottom margin
 
     console.log('[PRINTER] Opening device connection...');
     
@@ -452,10 +449,7 @@ ipcMain.handle('reprint-last', async () => {
   console.log('[PRINTER] Reprint request for last ticket');
   try {
     const { printer, device } = await connectPrinter();
-    const padded = lastTicket
-      .split('\n')
-      .map((l) => ' '.repeat(2) + l) // Just 2 spaces for small left margin
-      .join('\n') + '\n\n\n'; // Add bottom margin with 3 line feeds
+    const padded = lastTicket + '\n\n\n'; // Remove indent, just add bottom margin
     
     return new Promise((resolve, reject) => {
       device.open((err) => {
