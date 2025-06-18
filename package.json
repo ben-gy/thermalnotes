@@ -12,13 +12,14 @@
   "license": "ISC",
   "description": "Thermal Notes – simple app for printing notes to Epson TM-M30III over Bluetooth",
   "dependencies": {
+    "electron-store": "^8.1.0",
     "escpos": "3.0.0-alpha.6",
+    "escpos-network": "^3.0.0-alpha.5",
     "escpos-serialport": "3.0.0-alpha.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "serialport": "^12.0.0",
-    "electron-store": "^8.1.0",
-    "react-icons": "^5.2.0"
+    "react-icons": "^5.2.0",
+    "serialport": "^12.0.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.0",
