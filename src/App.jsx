@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FiRefreshCw, FiCheck, FiX, FiLoader, FiAlignLeft, FiAlignCenter, FiAlignRight, FiBold, FiUnderline } from 'react-icons/fi';
+import { FiRefreshCw, FiCheck, FiX, FiLoader, FiAlignLeft, FiAlignCenter, FiAlignRight, FiBold, FiUnderline, FiCornerDownLeft } from 'react-icons/fi';
 import { MdWrapText } from 'react-icons/md';
 import { IoColorPaletteOutline } from 'react-icons/io5';
 import './index.css';
@@ -66,6 +66,13 @@ function App() {
   const [wordWrap, setWordWrap] = useState(() => {
     const saved = localStorage.getItem('wordWrap');
     return saved === null ? true : saved === 'true'; // Default to true (word wrapping on)
+  });
+  
+  // Enter key behavior toggle - when true, Enter prints and Shift+Enter/Cmd+Enter/Ctrl+Enter create new paragraph
+  // when false (default), Enter creates new paragraph and Shift+Enter/Cmd+Enter/Ctrl+Enter print
+  const [enterToPrint, setEnterToPrint] = useState(() => {
+    const saved = localStorage.getItem('enterToPrint');
+    return saved === 'true'; // Default to false (normal behavior)
   });
   
   const [printerConnected, setPrinterConnected] = useState(false);
@@ -217,6 +224,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem('wordWrap', wordWrap.toString());
   }, [wordWrap]);
+  
+    useEffect(() => {
+    localStorage.setItem('enterToPrint', enterToPrint.toString());
+  }, [enterToPrint]);
 
   // Apply formatting commands
   const applyFormat = (command, value = null) => {
@@ -331,9 +342,14 @@ function App() {
             }
             break;
           case 'enter':
-            // Cmd+Enter to print
             e.preventDefault();
-            handlePrint();
+            if (enterToPrint) {
+              // When enterToPrint is enabled, Cmd+Enter creates new paragraph
+              createNewParagraph();
+            } else {
+              // When enterToPrint is disabled, Cmd+Enter prints (default behavior)
+              handlePrint();
+            }
             break;
         }
       }
@@ -341,7 +357,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyboardShortcut);
     return () => window.removeEventListener('keydown', handleKeyboardShortcut);
-  }, [isSelectionBold, isSelectionUnderline, fontSizeIndex, selectionFontSize]);
+  }, [isSelectionBold, isSelectionUnderline, fontSizeIndex, selectionFontSize, enterToPrint]);
 
   // Initialize printer status and set up listeners
   useEffect(() => {
@@ -376,6 +392,47 @@ function App() {
       window.api.offPrinterScanningChanged(handleScanningChange);
     };
   }, []);
+
+  // Helper function to create a new paragraph
+  const createNewParagraph = () => {
+    // Get current selection
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+    
+    const range = selection.getRangeAt(0);
+    
+    // Create a new paragraph element
+    const newParagraph = document.createElement('p');
+    const br = document.createElement('br');
+    newParagraph.appendChild(br);
+    
+    // Insert the new paragraph after the current block
+    let currentBlock = range.commonAncestorContainer;
+    if (currentBlock.nodeType === Node.TEXT_NODE) {
+      currentBlock = currentBlock.parentNode;
+    }
+    
+    // Find the paragraph or div parent
+    while (currentBlock && currentBlock !== editorRef.current && 
+           currentBlock.tagName !== 'P' && currentBlock.tagName !== 'DIV') {
+      currentBlock = currentBlock.parentNode;
+    }
+    
+    if (currentBlock && currentBlock !== editorRef.current) {
+      currentBlock.parentNode.insertBefore(newParagraph, currentBlock.nextSibling);
+    } else {
+      editorRef.current.appendChild(newParagraph);
+    }
+    
+    // Move cursor to the new paragraph
+    const newRange = document.createRange();
+    newRange.setStart(newParagraph, 0);
+    newRange.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+    
+    adjustEditorHeight();
+  };
 
   const simulatePrinterWrapping = (text, fontSizePt) => {
     const charsPerLine = getCharsPerLine(fontSizePt);
@@ -441,49 +498,26 @@ function App() {
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
-      if (e.shiftKey) {
-        // Shift+Enter: Create new paragraph
-        e.preventDefault();
-        
-        // Get current selection
-        const selection = window.getSelection();
-        const range = selection.getRangeAt(0);
-        
-        // Create a new paragraph element
-        const newParagraph = document.createElement('p');
-        const br = document.createElement('br');
-        newParagraph.appendChild(br);
-        
-        // Insert the new paragraph after the current block
-        let currentBlock = range.commonAncestorContainer;
-        if (currentBlock.nodeType === Node.TEXT_NODE) {
-          currentBlock = currentBlock.parentNode;
-        }
-        
-        // Find the paragraph or div parent
-        while (currentBlock && currentBlock !== editorRef.current && 
-               currentBlock.tagName !== 'P' && currentBlock.tagName !== 'DIV') {
-          currentBlock = currentBlock.parentNode;
-        }
-        
-        if (currentBlock && currentBlock !== editorRef.current) {
-          currentBlock.parentNode.insertBefore(newParagraph, currentBlock.nextSibling);
+      e.preventDefault();
+      
+      if (enterToPrint) {
+        // When enterToPrint is enabled:
+        // - Enter prints
+        // - Shift+Enter, Cmd+Enter, Ctrl+Enter create new paragraph
+        if (e.shiftKey || e.metaKey || e.ctrlKey) {
+          createNewParagraph();
         } else {
-          editorRef.current.appendChild(newParagraph);
+          handlePrint();
         }
-        
-        // Move cursor to the new paragraph
-        const newRange = document.createRange();
-        newRange.setStart(newParagraph, 0);
-        newRange.collapse(true);
-        selection.removeAllRanges();
-        selection.addRange(newRange);
-        
-        adjustEditorHeight();
       } else {
-        // Enter only: Print
-        e.preventDefault();
-        handlePrint();
+        // When enterToPrint is disabled (default behavior):
+        // - Enter creates new paragraph
+        // - Shift+Enter, Cmd+Enter, Ctrl+Enter print
+        if (e.shiftKey || e.metaKey || e.ctrlKey) {
+          handlePrint();
+        } else {
+          createNewParagraph();
+        }
       }
     }
   };
@@ -651,51 +685,79 @@ function App() {
     setNoteColor(noteColor === 'white' ? 'yellow' : 'white');
   };
 
-  const handlePrinterStatusClick = async () => {
-    console.log('[UI] Printer status clicked, connected:', printerConnected);
+  const handlePrinterStatusClick = async (event) => {
     if (!printerConnected && !printerScanning) {
-      console.log('[UI] Starting network scan...');
-      setPrinterScanning(true);
+      // Show dialog with scan options
+      const choice = window.confirm(
+        'No printer found. Would you like to:\n\n' +
+        'OK - Quick scan (common printer IPs)\n' +
+        'Cancel - Enter IP manually\n\n' +
+        'For full subnet scan, hold Shift while clicking OK.'
+      );
       
-      try {
-        // Try to scan for network printers
-        const foundPrinters = await window.api.scanNetworkPrinters();
-        console.log('[UI] Network scan result:', foundPrinters);
+      if (choice) {
+        // Check if shift key is held
+        const fullScan = event?.shiftKey || false;
+        console.log('[UI] Starting network scan...', fullScan ? 'FULL' : 'QUICK');
+        setPrinterScanning(true);
         
-        if (foundPrinters.length > 0) {
-          // Use the first found printer
-          console.log('[UI] Using first found printer:', foundPrinters[0]);
-          await window.api.setPrinterIP(foundPrinters[0]);
-          console.log('[UI] Printer IP set, refreshing status...');
-          // Refresh status
-          await window.api.refreshPrinterStatus();
-        } else {
-          console.log('[UI] No printers found, showing manual input dialog');
+        try {
+          const foundPrinters = await window.api.scanNetworkPrinters(fullScan);
+          console.log('[UI] Scan complete, found printers:', foundPrinters);
+          
+          if (foundPrinters.length > 0) {
+            // If multiple printers found, use the first one (or show selection dialog)
+            const selectedIP = foundPrinters[0];
+            console.log('[UI] Selecting printer at IP:', selectedIP);
+            await window.api.setPrinterIP(selectedIP);
+            setPrinterConnected(true);
+            
+            if (foundPrinters.length > 1) {
+              alert(`Found ${foundPrinters.length} printers. Connected to: ${selectedIP}`);
+            }
+          } else {
+            console.log('[UI] No printers found during scan');
+            alert(fullScan ? 
+              'No printers found in full subnet scan. Please check your printer is on and connected to the network.' :
+              'No printers found in quick scan. Try Shift+Click for full scan or enter IP manually.'
+            );
+          }
+        } catch (err) {
+          console.error('[UI] Scan error:', err);
+          alert('Error scanning for printers. Please try again.');
+        } finally {
           setPrinterScanning(false);
-          // Show IP input dialog
-          setShowIPDialog(true);
         }
-      } catch (error) {
-        console.error('[UI] Scan failed:', error);
-        setPrinterScanning(false);
+      } else {
+        // Show IP input dialog
+        setShowIPDialog(true);
       }
     }
   };
 
   const handleIPSubmit = async () => {
-    console.log('[UI] IP submit clicked, input:', ipInput);
-    if (ipInput && /^\d+\.\d+\.\d+\.\d+$/.test(ipInput)) {
-      console.log('[UI] Valid IP format, setting printer IP...');
-      await window.api.setPrinterIP(ipInput);
-      console.log('[UI] Manually set printer IP:', ipInput);
-      setShowIPDialog(false);
-      setIpInput('');
-      console.log('[UI] Refreshing printer status...');
-      // Refresh status
-      const newStatus = await window.api.refreshPrinterStatus();
-      console.log('[UI] New printer status after manual IP:', newStatus);
-    } else {
-      console.log('[UI] Invalid IP format:', ipInput);
+    if (ipInput.trim()) {
+      console.log('[UI] Testing IP:', ipInput.trim());
+      // Show scanning state while testing
+      setPrinterScanning(true);
+      
+      try {
+        const connected = await window.api.testPrinterIP(ipInput.trim());
+        if (connected) {
+          console.log('[UI] Printer found at IP:', ipInput.trim());
+          setPrinterConnected(true);
+          setShowIPDialog(false);
+          setIpInput('');
+        } else {
+          console.log('[UI] No printer found at IP:', ipInput.trim());
+          alert(`No printer found at IP ${ipInput.trim()}. Please check the IP address and try again.`);
+        }
+      } catch (err) {
+        console.error('[UI] Error testing IP:', err);
+        alert('Error testing printer connection. Please try again.');
+      } finally {
+        setPrinterScanning(false);
+      }
     }
   };
 
@@ -825,6 +887,15 @@ function App() {
             title={wordWrap ? "Word wrap on (preserves whole words)" : "Word wrap off (breaks anywhere)"}
           >
             <MdWrapText size={18} />
+          </button>
+
+          {/* Enter key behavior toggle */}
+          <button 
+            className={`format-btn ${enterToPrint ? 'active' : ''}`}
+            onClick={() => setEnterToPrint(!enterToPrint)}
+            title={enterToPrint ? "Enter prints, Shift+Enter creates new paragraph" : "Enter creates new paragraph, Shift+Enter prints"}
+          >
+            <FiCornerDownLeft size={18} />
           </button>
 
           <button 
