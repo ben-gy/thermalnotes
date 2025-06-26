@@ -92,8 +92,8 @@ async function findEpsonThermalPrinter() {
     const possibleIPs = await scanForNetworkPrinters();
     console.log(`[PRINTER] Testing ${possibleIPs.length} IPs in parallel...`);
     
-    // Test all IPs in parallel with batching to avoid overwhelming the network
-    const batchSize = 20; // Increased from 10 to 20 for faster scanning
+    // Test all IPs in parallel with larger batches for much faster scanning
+    const batchSize = 50; // Scan 50 IPs at once for speed
     const batches = [];
     
     // Split IPs into batches
@@ -105,7 +105,6 @@ async function findEpsonThermalPrinter() {
     let testedCount = 0;
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       const batch = batches[batchIndex];
-      console.log(`[PRINTER] Testing batch ${batchIndex + 1}/${batches.length}: ${batch.join(', ')}`);
       
       // Test all IPs in this batch simultaneously
       const results = await Promise.allSettled(
@@ -116,7 +115,10 @@ async function findEpsonThermalPrinter() {
       );
       
       testedCount += batch.length;
-      console.log(`[PRINTER] Progress: ${testedCount}/${possibleIPs.length} IPs tested`);
+      // Only log progress every 10% to reduce noise
+      if (batchIndex % Math.ceil(batches.length / 10) === 0 || batchIndex === batches.length - 1) {
+        console.log(`[PRINTER] Scan progress: ${Math.round((testedCount / possibleIPs.length) * 100)}%`);
+      }
       
       // Check if any succeeded
       for (const result of results) {
@@ -193,9 +195,11 @@ async function scanForNetworkPrinters(fullScan = false) {
             `${networkBase}.180`, `${networkBase}.181`, `${networkBase}.182`, `${networkBase}.183`, `${networkBase}.184`, `${networkBase}.185`,
             `${networkBase}.186`, `${networkBase}.187`, `${networkBase}.188`, `${networkBase}.189`, `${networkBase}.190`,
             
-            // 200-210 range (another common printer range)
+            // 200-240 range (common printer range, includes many DHCP assignments)
             `${networkBase}.200`, `${networkBase}.201`, `${networkBase}.202`, `${networkBase}.203`, `${networkBase}.204`, `${networkBase}.205`,
             `${networkBase}.206`, `${networkBase}.207`, `${networkBase}.208`, `${networkBase}.209`, `${networkBase}.210`,
+            `${networkBase}.220`, `${networkBase}.221`, `${networkBase}.222`, `${networkBase}.223`, `${networkBase}.224`, `${networkBase}.225`,
+            `${networkBase}.230`, `${networkBase}.231`, `${networkBase}.232`, `${networkBase}.233`, `${networkBase}.234`, `${networkBase}.235`,
             
             // 1-30 range (DHCP often starts here)
             `${networkBase}.1`, `${networkBase}.2`, `${networkBase}.3`, `${networkBase}.4`, `${networkBase}.5`,
@@ -233,14 +237,17 @@ async function testNetworkPrinterConnection(ip) {
     
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
-        console.log(`[PRINTER] Timeout connecting to ${ip}:9100`);
+        // Much shorter timeout for faster scanning
         resolve(false);
-      }, 3000); // Increased to 3 second timeout for better reliability
+      }, 500); // 500ms timeout - printers on local network should respond quickly
       
       device.open((err) => {
         clearTimeout(timeout);
         if (err) {
-          console.log(`[PRINTER] Failed to connect to ${ip}:9100 -`, err.message || err);
+          // Only log actual errors, not timeouts/unreachable hosts to reduce noise
+          if (err.code !== 'EHOSTDOWN' && err.code !== 'EHOSTUNREACH' && err.code !== 'ETIMEDOUT') {
+            console.log(`[PRINTER] Failed to connect to ${ip}:9100 -`, err.code || err.message);
+          }
           resolve(false);
         } else {
           console.log(`[PRINTER] ✓ Found printer at ${ip}:9100`);
@@ -638,7 +645,7 @@ ipcMain.handle('scan-network-printers', async (_event, fullScan = false) => {
     const foundPrinters = [];
     
     // Use the same batching approach as findEpsonThermalPrinter
-    const batchSize = 20;
+    const batchSize = 50;
     const batches = [];
     
     for (let i = 0; i < possibleIPs.length; i += batchSize) {
@@ -648,7 +655,6 @@ ipcMain.handle('scan-network-printers', async (_event, fullScan = false) => {
     let testedCount = 0;
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       const batch = batches[batchIndex];
-      console.log(`[PRINTER] Manual scan batch ${batchIndex + 1}/${batches.length}`);
       
       const results = await Promise.allSettled(
         batch.map(async (ip) => {
@@ -658,7 +664,10 @@ ipcMain.handle('scan-network-printers', async (_event, fullScan = false) => {
       );
       
       testedCount += batch.length;
-      console.log(`[PRINTER] Manual scan progress: ${testedCount}/${possibleIPs.length} IPs tested`);
+      // Only log progress updates to reduce noise
+      if (batchIndex % Math.ceil(batches.length / 5) === 0 || batchIndex === batches.length - 1) {
+        console.log(`[PRINTER] Manual scan progress: ${Math.round((testedCount / possibleIPs.length) * 100)}%`);
+      }
       
       for (const result of results) {
         if (result.status === 'fulfilled' && result.value.connected) {

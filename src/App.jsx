@@ -687,50 +687,45 @@ function App() {
 
   const handlePrinterStatusClick = async (event) => {
     if (!printerConnected && !printerScanning) {
-      // Show dialog with scan options
-      const choice = window.confirm(
-        'No printer found. Would you like to:\n\n' +
-        'OK - Quick scan (common printer IPs)\n' +
-        'Cancel - Enter IP manually\n\n' +
-        'For full subnet scan, hold Shift while clicking OK.'
-      );
-      
-      if (choice) {
-        // Check if shift key is held
-        const fullScan = event?.shiftKey || false;
-        console.log('[UI] Starting network scan...', fullScan ? 'FULL' : 'QUICK');
-        setPrinterScanning(true);
-        
-        try {
-          const foundPrinters = await window.api.scanNetworkPrinters(fullScan);
-          console.log('[UI] Scan complete, found printers:', foundPrinters);
-          
-          if (foundPrinters.length > 0) {
-            // If multiple printers found, use the first one (or show selection dialog)
-            const selectedIP = foundPrinters[0];
-            console.log('[UI] Selecting printer at IP:', selectedIP);
-            await window.api.setPrinterIP(selectedIP);
-            setPrinterConnected(true);
-            
-            if (foundPrinters.length > 1) {
-              alert(`Found ${foundPrinters.length} printers. Connected to: ${selectedIP}`);
-            }
-          } else {
-            console.log('[UI] No printers found during scan');
-            alert(fullScan ? 
-              'No printers found in full subnet scan. Please check your printer is on and connected to the network.' :
-              'No printers found in quick scan. Try Shift+Click for full scan or enter IP manually.'
-            );
-          }
-        } catch (err) {
-          console.error('[UI] Scan error:', err);
-          alert('Error scanning for printers. Please try again.');
-        } finally {
-          setPrinterScanning(false);
-        }
-      } else {
-        // Show IP input dialog
+      // If shift key is held, show manual IP dialog immediately
+      if (event?.shiftKey) {
         setShowIPDialog(true);
+        return;
+      }
+      
+      // Otherwise, start automatic scanning
+      console.log('[UI] Starting automatic network scan...');
+      setPrinterScanning(true);
+      
+      try {
+        // First try quick scan
+        let foundPrinters = await window.api.scanNetworkPrinters(false);
+        console.log('[UI] Quick scan complete, found printers:', foundPrinters);
+        
+        // If quick scan didn't find anything, automatically try full scan
+        if (foundPrinters.length === 0) {
+          console.log('[UI] Quick scan found nothing, trying full scan...');
+          foundPrinters = await window.api.scanNetworkPrinters(true);
+          console.log('[UI] Full scan complete, found printers:', foundPrinters);
+        }
+        
+        if (foundPrinters.length > 0) {
+          // If multiple printers found, use the first one
+          const selectedIP = foundPrinters[0];
+          console.log('[UI] Selecting printer at IP:', selectedIP);
+          await window.api.setPrinterIP(selectedIP);
+          setPrinterConnected(true);
+        } else {
+          console.log('[UI] No printers found during scan');
+          // Show IP dialog as fallback
+          setShowIPDialog(true);
+        }
+      } catch (err) {
+        console.error('[UI] Scan error:', err);
+        // Show IP dialog as fallback
+        setShowIPDialog(true);
+      } finally {
+        setPrinterScanning(false);
       }
     }
   };
@@ -776,7 +771,7 @@ function App() {
             ) : printerScanning ? (
               <FiLoader className="printer-status-icon scanning" size={20} title="Scanning for printer..." />
             ) : (
-              <FiX className="printer-status-icon disconnected" size={20} title="Click to scan for printer" />
+              <FiX className="printer-status-icon disconnected" size={20} title="Click to scan • Shift+Click to enter IP" />
             )}
           </div>
 
@@ -945,13 +940,13 @@ function App() {
         <div className="ip-dialog-overlay">
           <div className="ip-dialog">
             <h3>Enter Printer IP Address</h3>
-            <p>Enter your EPSON TM-m30III IP address:</p>
+            <p>No printer found. Enter your EPSON TM-m30III IP address:</p>
             <input
               type="text"
               value={ipInput}
               onChange={(e) => setIpInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleIPSubmit()}
-              placeholder="192.168.1.100"
+              placeholder="e.g. 10.0.0.231"
               className="ip-input"
               autoFocus
             />
@@ -959,10 +954,11 @@ function App() {
               <button onClick={handleIPCancel} className="ip-btn cancel">
                 Cancel
               </button>
-              <button onClick={handleIPSubmit} className="ip-btn submit">
+              <button onClick={handleIPSubmit} className="ip-btn submit" disabled={!ipInput.trim()}>
                 Connect
               </button>
             </div>
+            <p className="ip-dialog-hint">Tip: Shift+Click the printer icon to skip scanning</p>
           </div>
         </div>
       )}
