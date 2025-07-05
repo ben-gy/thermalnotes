@@ -7,10 +7,10 @@
     "electron": "electron .",
     "build": "vite build && electron-builder"
   },
-  "keywords": [],
+  "keywords": ["thermal", "printer", "epson", "notes", "desktop", "electron"],
   "author": "",
-  "license": "ISC",
-  "description": "Thermal Notes – simple app for printing notes to Epson TM-M30III over Bluetooth",
+  "license": "MIT",
+  "description": "A sophisticated desktop application for printing formatted notes to Epson TM-M30III thermal printers over network and serial connections.",
   "dependencies": {
     "electron-store": "^8.1.0",
     "escpos": "3.0.0-alpha.6",

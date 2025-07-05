@@ -772,6 +772,36 @@ function App() {
             )}
           </div>
 
+          {/* Refresh button - restore last printed text */}
+          <button 
+            className="format-btn" 
+            style={!lastPrintedHTML ? { 
+              border: 'none',
+              cursor: 'not-allowed',
+              pointerEvents: 'none'
+            } : {}}
+            onClick={() => {
+              if (lastPrintedHTML) {
+                editorRef.current.innerHTML = lastPrintedHTML;
+                editorRef.current.focus();
+                
+                // Place cursor at the end of the content
+                const range = document.createRange();
+                const selection = window.getSelection();
+                range.selectNodeContents(editorRef.current);
+                range.collapse(false); // false means collapse to end
+                selection.removeAllRanges();
+                selection.addRange(range);
+                
+                adjustEditorHeight();
+              }
+            }}
+            disabled={!lastPrintedHTML}
+            title={lastPrintedHTML ? "Restore last printed text" : "No previous text to restore"}
+          >
+            <FiRefreshCw size={16} />
+          </button>
+
           <div className="alignment-divider" />
 
           {/* Font size controls */}
@@ -892,20 +922,6 @@ function App() {
           data-placeholder="TYPE HERE"
         />
       </div>
-
-              {lastPrintedHTML && (
-          <button 
-            className="refresh-btn" 
-            onClick={() => {
-              editorRef.current.innerHTML = lastPrintedHTML;
-              editorRef.current.focus();
-              adjustEditorHeight();
-            }}
-            title="Restore last printed text"
-          >
-            <FiRefreshCw size={16} />
-          </button>
-        )}
 
       {showIPDialog && (
         <div className="ip-dialog-overlay">
