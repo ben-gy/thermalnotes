@@ -1,8 +1,10 @@
 # ThermalNotes
 
-> **⚠️ AI-Generated Code Notice**: This entire application has been written by AI without human supervision. While functional, the code may contain unexpected behaviors, security vulnerabilities, or design patterns that differ from human-written software. Use at your own discretion.
+A simple desktop application for printing formatted notes to Epson TM-M30III thermal printers over network (WiFi) connections.
 
-A **sophisticated** desktop application for printing formatted notes to Epson TM-M30III thermal printers over network and serial connections.
+![IMG_3036](https://github.com/user-attachments/assets/9d4b1b0e-f555-40d5-af5d-ba3bf35fab63)
+
+> **⚠️ AI-Generated Code Notice**: This entire application (including this readme) has been written by AI with minimal human supervision. While functional, the code may contain unexpected behaviors, security vulnerabilities, or design patterns that differ from human-written software. Use at your own discretion.
 
 ## Summary
 
