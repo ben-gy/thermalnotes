@@ -124,7 +124,7 @@ button.secondary {
   flex-direction: column;
   align-items: center;
   height: 100%; /* Fill exact window height, not minimum */
-  overflow: visible; /* Changed from hidden to visible to allow tooltips */
+  overflow: hidden;
 }
 
 .controls-header {
@@ -143,7 +143,7 @@ button.secondary {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   box-sizing: border-box;
   overflow-x: auto;
-  overflow-y: visible; /* Allow tooltips to show below */
+  overflow-y: hidden;
   white-space: nowrap;
   /* Hide scrollbar but keep functionality */
   scrollbar-width: none; /* Firefox */
@@ -544,6 +544,18 @@ button.secondary {
   text-align: center;
 }
 
+.ip-input.error {
+  border-color: #dc3545;
+}
+
+.ip-error {
+  color: #dc3545;
+  font-size: 13px;
+  margin-top: 8px;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
 .actions-inline {
   margin-top: 8px;
   font-size: 0.875rem;
@@ -569,40 +581,4 @@ button.secondary {
   opacity: 0.2;
   cursor: not-allowed;
 }
-
-.tooltip-wrapper {
-  position: relative;
-  display: inline-block;
-}
-
-.tooltip {
-  position: absolute;
-  bottom: -30px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.8);
-  color: white;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  white-space: nowrap;
-  z-index: 10000; /* Increased z-index */
-  pointer-events: none;
-  opacity: 1; /* Ensure opacity is set */
-}
-
-.tooltip::before {
-  content: '';
-  position: absolute;
-  top: -4px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 0;
-  height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-bottom: 4px solid rgba(0, 0, 0, 0.8);
-}
-
-/* color-toggle-btn styles removed - now using format-btn class */
 

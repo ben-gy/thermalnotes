@@ -1,40 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { FiRefreshCw, FiCheck, FiX, FiLoader, FiAlignLeft, FiAlignCenter, FiAlignRight, FiBold, FiUnderline, FiCornerDownLeft } from 'react-icons/fi';
+import { FiRefreshCw, FiCheck, FiX, FiLoader, FiAlignLeft, FiAlignCenter, FiAlignRight, FiCornerDownLeft } from 'react-icons/fi';
 import { MdWrapText } from 'react-icons/md';
 import { IoColorPaletteOutline } from 'react-icons/io5';
+import { RiText } from 'react-icons/ri';
 import './index.css';
-
-
-
-// Tooltip component for keyboard shortcuts
-const Tooltip = ({ shortcut, children }) => {
-  const [showTooltip, setShowTooltip] = useState(false);
-  const timeoutRef = useRef(null);
-  
-  const handleMouseEnter = () => {
-    timeoutRef.current = setTimeout(() => {
-      setShowTooltip(true);
-    }, 1000); // Show after 1 second
-  };
-  
-  const handleMouseLeave = () => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-    setShowTooltip(false);
-  };
-  
-  return (
-    <div className="tooltip-wrapper" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
-      {children}
-      {showTooltip && (
-        <div className="tooltip">
-          {shortcut}
-        </div>
-      )}
-    </div>
-  );
-};
 
 function App() {
   // Font size presets - simplified to 3 distinct sizes
@@ -75,10 +44,17 @@ function App() {
     return saved === 'true'; // Default to false (normal behavior)
   });
   
+  // First line caps toggle - when true, the first line is printed in all caps
+  const [firstLineCaps, setFirstLineCaps] = useState(() => {
+    const saved = localStorage.getItem('firstLineCaps');
+    return saved === 'true'; // Default to false
+  });
+  
   const [printerConnected, setPrinterConnected] = useState(false);
   const [printerScanning, setPrinterScanning] = useState(false);
   const [showIPDialog, setShowIPDialog] = useState(false);
   const [ipInput, setIpInput] = useState('');
+  const [ipError, setIpError] = useState('');
   const editorRef = useRef(null);
   const [isSelectionBold, setIsSelectionBold] = useState(false);
   const [isSelectionUnderline, setIsSelectionUnderline] = useState(false);
@@ -225,9 +201,13 @@ function App() {
     localStorage.setItem('wordWrap', wordWrap.toString());
   }, [wordWrap]);
   
-    useEffect(() => {
+  useEffect(() => {
     localStorage.setItem('enterToPrint', enterToPrint.toString());
   }, [enterToPrint]);
+  
+  useEffect(() => {
+    localStorage.setItem('firstLineCaps', firstLineCaps.toString());
+  }, [firstLineCaps]);
 
   // Apply formatting commands
   const applyFormat = (command, value = null) => {
@@ -654,17 +634,27 @@ function App() {
 
   const handlePrint = () => {
     const html = editorRef.current.innerHTML;
-    const text = htmlToPlainText(html);
+    let text = htmlToPlainText(html);
     
     if (text.trim()) {
       setLastPrintedHTML(html);
       setLastPrintedText(text);
+      
+      // Apply first line caps if enabled
+      if (firstLineCaps) {
+        const lines = text.split('\n');
+        if (lines.length > 0) {
+          lines[0] = lines[0].toUpperCase();
+          text = lines.join('\n');
+        }
+      }
       
       // Debug logging
       console.log('[PRINT] Original text:', text);
       console.log('[PRINT] Font size:', fontSize, 'pt');
       console.log('[PRINT] Chars per line:', getCharsPerLine(fontSize));
       console.log('[PRINT] Word wrap enabled:', wordWrap);
+      console.log('[PRINT] First line caps:', firstLineCaps);
       
       // Apply printer wrapping before sending to printer
       const wrappedText = simulatePrinterWrapping(text.trim(), fontSize);
@@ -690,6 +680,7 @@ function App() {
       // If shift key is held, show manual IP dialog immediately
       if (event?.shiftKey) {
         setShowIPDialog(true);
+        setIpError('');
         return;
       }
       
@@ -719,11 +710,13 @@ function App() {
           console.log('[UI] No printers found during scan');
           // Show IP dialog as fallback
           setShowIPDialog(true);
+          setIpError('');
         }
       } catch (err) {
         console.error('[UI] Scan error:', err);
         // Show IP dialog as fallback
         setShowIPDialog(true);
+        setIpError('');
       } finally {
         setPrinterScanning(false);
       }
@@ -733,6 +726,8 @@ function App() {
   const handleIPSubmit = async () => {
     if (ipInput.trim()) {
       console.log('[UI] Testing IP:', ipInput.trim());
+      // Clear any previous error
+      setIpError('');
       // Show scanning state while testing
       setPrinterScanning(true);
       
@@ -743,13 +738,14 @@ function App() {
           setPrinterConnected(true);
           setShowIPDialog(false);
           setIpInput('');
+          setIpError('');
         } else {
           console.log('[UI] No printer found at IP:', ipInput.trim());
-          alert(`No printer found at IP ${ipInput.trim()}. Please check the IP address and try again.`);
+          setIpError(`No printer found at ${ipInput.trim()}`);
         }
       } catch (err) {
         console.error('[UI] Error testing IP:', err);
-        alert('Error testing printer connection. Please try again.');
+        setIpError('Connection error. Please try again.');
       } finally {
         setPrinterScanning(false);
       }
@@ -759,6 +755,7 @@ function App() {
   const handleIPCancel = () => {
     setShowIPDialog(false);
     setIpInput('');
+    setIpError('');
   };
 
   return (
@@ -778,100 +775,66 @@ function App() {
           <div className="alignment-divider" />
 
           {/* Font size controls */}
-          <Tooltip shortcut="⌘1">
-            <button
-              className={`font-size-btn ${fontSizeIndex === 0 ? 'active' : ''}`}
-              onClick={() => {
-                setFontSizeIndex(0);
-                setTimeout(adjustEditorHeight, 0);
-              }}
-              title="Small font (20pt)"
-              style={{ fontSize: '12px' }}
-            >
-              S
-            </button>
-          </Tooltip>
+          <button
+            className={`font-size-btn ${fontSizeIndex === 0 ? 'active' : ''}`}
+            onClick={() => {
+              setFontSizeIndex(0);
+              setTimeout(adjustEditorHeight, 0);
+            }}
+            title="Small font (20pt) • ⌘1"
+            style={{ fontSize: '12px' }}
+          >
+            S
+          </button>
           
-          <Tooltip shortcut="⌘2">
-            <button
-              className={`font-size-btn ${fontSizeIndex === 1 ? 'active' : ''}`}
-              onClick={() => {
-                setFontSizeIndex(1);
-                setTimeout(adjustEditorHeight, 0);
-              }}
-              title="Medium font (28pt)"
-              style={{ fontSize: '14px' }}
-            >
-              M
-            </button>
-          </Tooltip>
+          <button
+            className={`font-size-btn ${fontSizeIndex === 1 ? 'active' : ''}`}
+            onClick={() => {
+              setFontSizeIndex(1);
+              setTimeout(adjustEditorHeight, 0);
+            }}
+            title="Medium font (28pt) • ⌘2"
+            style={{ fontSize: '14px' }}
+          >
+            M
+          </button>
           
-          <Tooltip shortcut="⌘3">
-            <button
-              className={`font-size-btn ${fontSizeIndex === 2 ? 'active' : ''}`}
-              onClick={() => {
-                setFontSizeIndex(2);
-                setTimeout(adjustEditorHeight, 0);
-              }}
-              title="Large font (40pt)"
-              style={{ fontSize: '16px' }}
-            >
-              L
-            </button>
-          </Tooltip>
+          <button
+            className={`font-size-btn ${fontSizeIndex === 2 ? 'active' : ''}`}
+            onClick={() => {
+              setFontSizeIndex(2);
+              setTimeout(adjustEditorHeight, 0);
+            }}
+            title="Large font (40pt) • ⌘3"
+            style={{ fontSize: '16px' }}
+          >
+            L
+          </button>
           
           <div className="alignment-divider" />
           
-          {/* Bold and Underline */}
-          {/* <Tooltip shortcut="⌘B">
-            <button 
-              className={`format-btn ${isSelectionBold ? 'active' : ''}`}
-              onClick={toggleBold}
-              title="Bold"
-            >
-              <FiBold size={18} />
-            </button>
-          </Tooltip>
-          <Tooltip shortcut="⌘U">
-            <button 
-              className={`format-btn ${isSelectionUnderline ? 'active' : ''}`}
-              onClick={toggleUnderline}
-              title="Underline"
-            >
-              <FiUnderline size={18} />
-            </button>
-          </Tooltip> */}
-          
-          {/* <div className="alignment-divider" /> */}
-          
           {/* Alignment buttons */}
-          <Tooltip shortcut="⌘⇧L">
-            <button 
-              className={`align-btn ${textAlign === 'left' ? 'active' : ''}`}
-              onClick={() => setTextAlign('left')}
-              title="Align left"
-            >
-              <FiAlignLeft size={18} />
-            </button>
-          </Tooltip>
-          <Tooltip shortcut="⌘⇧E">
-            <button 
-              className={`align-btn ${textAlign === 'center' ? 'active' : ''}`}
-              onClick={() => setTextAlign('center')}
-              title="Align center"
-            >
-              <FiAlignCenter size={18} />
-            </button>
-          </Tooltip>
-          <Tooltip shortcut="⌘⇧R">
-            <button 
-              className={`align-btn ${textAlign === 'right' ? 'active' : ''}`}
-              onClick={() => setTextAlign('right')}
-              title="Align right"
-            >
-              <FiAlignRight size={18} />
-            </button>
-          </Tooltip>
+          <button 
+            className={`align-btn ${textAlign === 'left' ? 'active' : ''}`}
+            onClick={() => setTextAlign('left')}
+            title="Align left • ⌘⇧L"
+          >
+            <FiAlignLeft size={18} />
+          </button>
+          <button 
+            className={`align-btn ${textAlign === 'center' ? 'active' : ''}`}
+            onClick={() => setTextAlign('center')}
+            title="Align center • ⌘⇧E"
+          >
+            <FiAlignCenter size={18} />
+          </button>
+          <button 
+            className={`align-btn ${textAlign === 'right' ? 'active' : ''}`}
+            onClick={() => setTextAlign('right')}
+            title="Align right • ⌘⇧R"
+          >
+            <FiAlignRight size={18} />
+          </button>
           
           <div className="alignment-divider" />
           
@@ -899,6 +862,14 @@ function App() {
             title={`Switch to ${noteColor === 'white' ? 'yellow' : 'white'} sticky note`}
           >
             <IoColorPaletteOutline size={18} />
+          </button>
+
+          <button 
+            className={`format-btn ${firstLineCaps ? 'active' : ''}`}
+            onClick={() => setFirstLineCaps(!firstLineCaps)}
+            title={firstLineCaps ? "First line caps ON" : "First line caps OFF"}
+          >
+            <RiText size={18} />
           </button>
         </div>
       </div>
@@ -944,18 +915,22 @@ function App() {
             <input
               type="text"
               value={ipInput}
-              onChange={(e) => setIpInput(e.target.value)}
+              onChange={(e) => {
+                setIpInput(e.target.value);
+                setIpError(''); // Clear error on input change
+              }}
               onKeyDown={(e) => e.key === 'Enter' && handleIPSubmit()}
               placeholder="e.g. 10.0.0.231"
-              className="ip-input"
+              className={`ip-input ${ipError ? 'error' : ''}`}
               autoFocus
             />
+            {ipError && <p className="ip-error">{ipError}</p>}
             <div className="ip-dialog-buttons">
               <button onClick={handleIPCancel} className="ip-btn cancel">
                 Cancel
               </button>
-              <button onClick={handleIPSubmit} className="ip-btn submit" disabled={!ipInput.trim()}>
-                Connect
+              <button onClick={handleIPSubmit} className="ip-btn submit" disabled={!ipInput.trim() || printerScanning}>
+                {printerScanning ? 'Testing...' : 'Connect'}
               </button>
             </div>
             <p className="ip-dialog-hint">Tip: Shift+Click the printer icon to skip scanning</p>
