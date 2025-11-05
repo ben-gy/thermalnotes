@@ -22,6 +22,7 @@ let rendererReady = false;
 let retryCount = 0;
 const MAX_RETRIES = 5;
 let connectionType = null; // 'network', 'serial', or 'bluetooth'
+let previousPrinterStatus = { connected: false, type: null }; // Track previous status to prevent duplicate events
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -436,34 +437,49 @@ async function testPrinterConnection(devicePath) {
   }
 }
 
+// Helper function to check if printer status has changed and emit event if needed
+function notifyStatusChange(newConnected, newType) {
+  const currentStatus = { connected: newConnected, type: newType };
+
+  // Only emit event if status actually changed
+  if (previousPrinterStatus.connected !== currentStatus.connected ||
+      previousPrinterStatus.type !== currentStatus.type) {
+
+    console.log('[PRINTER] Status changed from', previousPrinterStatus, 'to', currentStatus);
+
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('printer-status-changed', currentStatus);
+    }
+
+    // Update previous status
+    previousPrinterStatus = { ...currentStatus };
+  } else {
+    console.log('[PRINTER] Status unchanged, no event emitted');
+  }
+}
+
 async function checkPrinterStatus() {
   console.log('[PRINTER] Checking printer status...');
-  
+
   // Check both old printerPath (for serial) and new printerIP (for network)
   const savedPath = store.get('printerPath', '');
   const savedIP = store.get('printerIP', '');
   let currentConnection = savedIP || savedPath; // Prefer network over serial
-  
+
   console.log('[PRINTER] Saved connections - IP:', savedIP || 'none', ', Path:', savedPath || 'none');
-  
+
   // Test saved connection first if available
   if (currentConnection) {
     console.log('[PRINTER] Testing saved connection:', currentConnection);
     const connected = await testPrinterConnection(currentConnection);
-    
+
     if (connected) {
       // Saved connection works, update status and exit
-      const wasConnected = printerConnected;
       printerConnected = true;
-      
       console.log('[PRINTER] Saved connection SUCCESS');
 
-      if (wasConnected !== true) {
-        if (mainWindow && mainWindow.webContents) {
-          console.log('[PRINTER] Notifying renderer of connection');
-          mainWindow.webContents.send('printer-status-changed', { connected: true, type: connectionType });
-        }
-      }
+      // Notify only if status changed
+      notifyStatusChange(true, connectionType);
       return;
     } else {
       // Saved connection failed - IP probably changed, clear it and rescan
@@ -478,11 +494,11 @@ async function checkPrinterStatus() {
       }
     }
   }
-  
+
   // No saved connection OR saved connection failed - auto-detect
   console.log('[PRINTER] Starting fresh auto-detection...');
   currentConnection = await findEpsonThermalPrinter();
-  
+
   if (currentConnection) {
     // Save new connection
     if (/^\d+\.\d+\.\d+\.\d+$/.test(currentConnection)) {
@@ -492,34 +508,31 @@ async function checkPrinterStatus() {
       store.set('printerPath', currentConnection);
       console.log('[PRINTER] Found and saved new path:', currentConnection);
     }
-    
+
     // Update status to connected
-    const wasConnected = printerConnected;
     printerConnected = true;
 
-    if (wasConnected !== true) {
-      if (mainWindow && mainWindow.webContents) {
-        console.log('[PRINTER] Notifying renderer of new connection');
-        mainWindow.webContents.send('printer-status-changed', { connected: true, type: connectionType });
-      }
-    }
+    // Notify only if status changed
+    notifyStatusChange(true, connectionType);
   } else {
     // No printer found at all
     console.log('[PRINTER] No printer found during rescan');
-    const wasConnected = printerConnected;
     printerConnected = false;
 
-    if (wasConnected !== false) {
-      if (mainWindow && mainWindow.webContents) {
-        console.log('[PRINTER] Notifying renderer of disconnection');
-        mainWindow.webContents.send('printer-status-changed', { connected: false, type: null });
-      }
-    }
+    // Notify only if status changed
+    notifyStatusChange(false, null);
   }
 }
 
 async function startPrinterAutoDetection() {
   console.log('[PRINTER] Starting auto-detection...');
+
+  // Clear any existing interval to prevent multiple parallel checks (e.g., from HMR reloads)
+  if (printerCheckInterval) {
+    console.log('[PRINTER] Clearing existing check interval');
+    clearInterval(printerCheckInterval);
+    printerCheckInterval = null;
+  }
 
   // Try saved connection first - don't clear on startup
   const savedIP = store.get('printerIP', '');
