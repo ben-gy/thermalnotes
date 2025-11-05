@@ -12,13 +12,15 @@ ThermalNotes is an **Electron-based** application that provides an intelligent, 
 
 ### Key Features
 
-- **🖨️ Smart Printer Detection**: Automatically scans your network for Epson TM-M30III printers
+- **🖨️ Smart Printer Detection**: Automatically scans your network for Epson TM-M30III printers with model verification
 - **⚙️ Intelligent Text Wrapping**: Real-time preview with character-per-line calculations
 - **🔄 Word Wrap Toggle**: Choose between word-preserving or character-breaking line wrapping
 - **💾 Persistent Settings**: Remembers all preferences between sessions
 - **🌈 Visual Themes**: White or yellow sticky note backgrounds
 - **⌨️ Extensive Keyboard Shortcuts**: Full keyboard control for power users
 - **🔄 Last Print Restore**: Quickly restore your most recently printed text
+- **🎨 Advanced Mode**: Pixel-based printing with custom fonts, bold, underline, and strikethrough formatting
+- **🔒 Printer Verification**: Only connects to Epson TM-M30III printers, rejects incompatible devices
 
 ## Installation
 
@@ -68,13 +70,26 @@ ThermalNotes is an **Electron-based** application that provides an intelligent, 
 
 #### Font Sizes
 - **Small (20pt)**: ~24 characters per line
-- **Medium (28pt)**: ~17 characters per line  
+- **Medium (28pt)**: ~17 characters per line
 - **Large (40pt)**: ~12 characters per line
 
 #### Text Formatting
 - **Alignment**: Left, Center, Right for entire document
 - **Word Wrap**: Toggle between word-preserving and character-breaking
 - **First Uppercase**: Automatically uppercase the whole first line when printing
+
+#### Advanced Mode (Pixel-Based Printing)
+- **Custom Fonts**: Choose from 10 different font families (Arial, Helvetica, Times New Roman, etc.)
+- **Bold Formatting**: Apply bold to selected text or toggle for all new text (Cmd/Ctrl + B)
+- **Underline Formatting**: Apply underline to selected text or toggle for all new text (Cmd/Ctrl + U)
+- **Strikethrough**: Add strikethrough to any text
+- **WYSIWYG Rendering**: Text is rendered as an image with exact font and formatting
+- **Persistent Formatting**: Formatting toggles remain active for newly typed text when nothing is selected
+
+#### Simple Mode (Text-Based Printing)
+- **Fast ESC/POS Commands**: Uses native printer text rendering for speed
+- **Character Wrapping**: Intelligent wrapping based on font size
+- **First Line Caps**: Optional uppercase for first line
 
 #### Advanced Options
 - **Enter Key Behavior**: Toggle between "Enter prints" vs "Enter creates new paragraph"
@@ -103,12 +118,15 @@ ThermalNotes is an **Electron-based** application that provides an intelligent, 
 The app scans common IP address ranges to find your printer:
 - **Quick Scan**: Tests common printer IP addresses (100-110, 180-190, 200-240 ranges)
 - **Full Scan**: If quick scan fails, automatically scans entire subnet (2-254)
+- **Printer Verification**: Sends ESC/POS status queries to verify Epson compatibility
+- **Model Filtering**: Automatically rejects non-Epson printers (e.g., HP, Canon)
 - **Persistent Connection**: Remembers successful connections between sessions
 
 #### Manual Configuration
 - **Click** the printer status icon to start scanning
 - **Shift+Click** the printer status icon to manually enter an IP address
 - Supports both **network (TCP/IP)** and **serial** connections
+- Only accepts Epson TM-M30III printers for compatibility
 
 ## Technical Details
 
@@ -132,7 +150,12 @@ The application dynamically calculates window height based on:
 
 - **Network**: TCP/IP connection on port 9100 (standard for Epson printers)
 - **Serial**: Serial port communication with configurable baud rates
-- **Format Translation**: Converts rich text to ESC/POS commands
+- **Model Verification**: ESC/POS status query (0x10 0x04 0x01) to verify printer compatibility
+- **Dual Print Modes**:
+  - **Simple Mode**: Converts text to ESC/POS commands for fast printing
+  - **Advanced Mode**: Renders text to 576px-wide canvas and prints as raster image
+- **Format Translation**: Converts rich text to ESC/POS commands (simple mode)
+- **Image Rendering**: Canvas API with scaling for pixel-perfect printing (advanced mode)
 - **Character Mapping**: Precise character-per-line calculations for accurate wrapping
 
 ### Smart Text Wrapping

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { FiRefreshCw, FiCheck, FiX, FiLoader, FiAlignLeft, FiAlignCenter, FiAlignRight, FiCornerDownLeft } from 'react-icons/fi';
+import { FiRefreshCw, FiCheck, FiX, FiLoader, FiAlignLeft, FiAlignCenter, FiAlignRight, FiCornerDownLeft, FiWifi, FiBluetooth, FiImage } from 'react-icons/fi';
 import { MdWrapText } from 'react-icons/md';
 import { IoColorPaletteOutline } from 'react-icons/io5';
 import { RiText } from 'react-icons/ri';
+import { AiOutlineStrikethrough } from 'react-icons/ai';
 import './index.css';
 
 function App() {
@@ -52,13 +53,40 @@ function App() {
   
   const [printerConnected, setPrinterConnected] = useState(false);
   const [printerScanning, setPrinterScanning] = useState(false);
+  const [connectionType, setConnectionType] = useState(null); // 'network' or 'bluetooth'
   const [showIPDialog, setShowIPDialog] = useState(false);
   const [ipInput, setIpInput] = useState('');
   const [ipError, setIpError] = useState('');
   const editorRef = useRef(null);
   const [isSelectionBold, setIsSelectionBold] = useState(false);
   const [isSelectionUnderline, setIsSelectionUnderline] = useState(false);
+  const [isSelectionStrikethrough, setIsSelectionStrikethrough] = useState(false);
   const [selectionFontSize, setSelectionFontSize] = useState(null);
+
+
+  // Advanced mode state
+  const [advancedMode, setAdvancedMode] = useState(() => {
+    const saved = localStorage.getItem('advancedMode');
+    return saved === 'true'; // Default to false (simple mode)
+  });
+
+  const [fontFamily, setFontFamily] = useState(() => {
+    return localStorage.getItem('fontFamily') || 'Arial';
+  });
+
+  // Available font families
+  const FONT_FAMILIES = [
+    'Arial',
+    'Helvetica',
+    'Times New Roman',
+    'Courier New',
+    'Georgia',
+    'Verdana',
+    'Comic Sans MS',
+    'Impact',
+    'Trebuchet MS',
+    'Lucida Console'
+  ];
 
   // Auto-resize editor height based on content
   const adjustEditorHeight = () => {
@@ -67,24 +95,24 @@ function App() {
       editorRef.current.style.height = 'auto';
       // Force browser to recalculate
       void editorRef.current.offsetHeight;
-      
+
       // Get the actual content height - use ceil to handle fractional pixels
       const scrollHeight = Math.ceil(editorRef.current.scrollHeight);
-      
+
       // Set the height
       editorRef.current.style.height = scrollHeight + 'px';
-      
+
       // Calculate total window height to match visual margins
       // Fixed components:
       // 44px - controls header
       // 15px - paper margin top (matches sides)
       // 20px - paper padding top
-      // 20px - paper padding bottom  
+      // 20px - paper padding bottom
       // 15px - paper margin bottom (matches sides)
       const fixedHeight = 44 + 15 + 20 + 20 + 15;
       const windowHeight = fixedHeight + scrollHeight;
-      const windowWidth = 332;
-      
+      const windowWidth = 332; // Keep window width constant
+
       window.api.resizeWindow(windowHeight, windowWidth);
     }
   };
@@ -95,17 +123,21 @@ function App() {
     if (selection.rangeCount > 0 && !selection.isCollapsed) {
       const range = selection.getRangeAt(0);
       const container = range.commonAncestorContainer;
-      
+
       // Check if selection is within our editor
       if (editorRef.current && editorRef.current.contains(container)) {
         // Check bold
         const isBold = document.queryCommandState('bold');
         setIsSelectionBold(isBold);
-        
+
         // Check underline
         const isUnderline = document.queryCommandState('underline');
         setIsSelectionUnderline(isUnderline);
-        
+
+        // Check strikethrough
+        const isStrikethrough = document.queryCommandState('strikeThrough');
+        setIsSelectionStrikethrough(isStrikethrough);
+
         // Check font size - this is more complex with contenteditable
         // For now, we'll just check if all selected text has the same font size
         // This is a simplified approach
@@ -123,6 +155,7 @@ function App() {
     } else {
       setIsSelectionBold(false);
       setIsSelectionUnderline(false);
+      setIsSelectionStrikethrough(false);
       setSelectionFontSize(null);
     }
   };
@@ -133,9 +166,9 @@ function App() {
     const timeoutId = setTimeout(() => {
       adjustEditorHeight();
     }, 10);
-    
+
     return () => clearTimeout(timeoutId);
-  }, [fontSize]); // Add fontSize as dependency to resize when it changes
+  }, [fontSize]); // Resize when fontSize changes
 
   // Get characters per line based on font size for EPSON TM-m30III
   const getCharsPerLine = (fontSizePt) => {
@@ -209,6 +242,14 @@ function App() {
     localStorage.setItem('firstLineCaps', firstLineCaps.toString());
   }, [firstLineCaps]);
 
+  useEffect(() => {
+    localStorage.setItem('advancedMode', advancedMode.toString());
+  }, [advancedMode]);
+
+  useEffect(() => {
+    localStorage.setItem('fontFamily', fontFamily);
+  }, [fontFamily]);
+
   // Apply formatting commands
   const applyFormat = (command, value = null) => {
     editorRef.current.focus();
@@ -216,14 +257,19 @@ function App() {
     updateSelectionState();
   };
 
-  // Toggle bold for selection
+  // Toggle bold - works for both selection and persistent formatting
   const toggleBold = () => {
     applyFormat('bold');
   };
 
-  // Toggle underline for selection
+  // Toggle underline - works for both selection and persistent formatting
   const toggleUnderline = () => {
     applyFormat('underline');
+  };
+
+  // Toggle strikethrough - works for both selection and persistent formatting
+  const toggleStrikethrough = () => {
+    applyFormat('strikeThrough');
   };
 
   // Change font size for selection
@@ -259,7 +305,7 @@ function App() {
     const handleKeyboardShortcut = (e) => {
       // Check for Cmd (Mac) or Ctrl (Windows/Linux)
       const isCtrlCmd = e.metaKey || e.ctrlKey;
-      
+
       if (isCtrlCmd) {
         switch (e.key.toLowerCase()) {
           case 'b':
@@ -337,24 +383,23 @@ function App() {
 
     window.addEventListener('keydown', handleKeyboardShortcut);
     return () => window.removeEventListener('keydown', handleKeyboardShortcut);
-  }, [isSelectionBold, isSelectionUnderline, fontSizeIndex, selectionFontSize, enterToPrint]);
+  }, [isSelectionBold, isSelectionUnderline, fontSizeIndex, selectionFontSize, enterToPrint, printerConnected, printerScanning]);
 
   // Initialize printer status and set up listeners
   useEffect(() => {
     console.log('[UI] Initializing printer status...');
-    // Get initial printer status
-    window.api.getPrinterStatus().then((status) => {
-      console.log('[UI] Initial printer status:', status);
-      setPrinterConnected(status);
-    });
 
-    // Listen for printer status changes
-    const handleStatusChange = (event, connected) => {
-      console.log('[UI] Printer status changed:', connected);
-      setPrinterConnected(connected);
-      if (connected !== 'scanning') {
-        setPrinterScanning(false);
+    // Set up event listeners FIRST before triggering any detection
+    const handleStatusChange = (event, statusData) => {
+      console.log('[UI] Printer status changed:', statusData);
+      if (typeof statusData === 'object') {
+        setPrinterConnected(statusData.connected);
+        setConnectionType(statusData.type);
+      } else {
+        // Backward compatibility
+        setPrinterConnected(statusData);
       }
+      setPrinterScanning(false);
     };
 
     // Listen for scanning status changes
@@ -365,6 +410,22 @@ function App() {
 
     window.api.onPrinterStatusChanged(handleStatusChange);
     window.api.onPrinterScanningChanged(handleScanningChange);
+
+    // Show scanning indicator immediately
+    setPrinterScanning(true);
+
+    // Signal to main process that renderer is ready and start auto-detection
+    window.api.rendererReady().then((statusData) => {
+      console.log('[UI] Renderer ready, initial status:', statusData);
+      if (statusData && typeof statusData === 'object') {
+        setPrinterConnected(statusData.connected);
+        setConnectionType(statusData.type);
+      }
+      // Scanning status will be updated via handleScanningChange event
+    }).catch((err) => {
+      console.error('[UI] Error signaling renderer ready:', err);
+      setPrinterScanning(false);
+    });
 
     // Cleanup listener on unmount
     return () => {
@@ -632,38 +693,174 @@ function App() {
     return text;
   };
 
+  // Render text to canvas and get image data for pixel-based printing
+  const renderTextToCanvas = () => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    // Thermal printer width: 576 pixels for TM-M30III (72mm at 203dpi)
+    const printerWidth = 576;
+    canvas.width = printerWidth;
+
+    // Get text content and styling from editor
+    const text = htmlToPlainText(editorRef.current.innerHTML);
+    if (!text.trim()) return null;
+
+    // Scale factor: editor shows 302px, printer is 576px
+    const scaleFactor = printerWidth / 302;
+
+    // Scale the font size and margins to match printer width
+    const scaledFontSize = Math.round(fontSize * scaleFactor);
+    const scaledMargin = Math.round(20 * scaleFactor); // 20px in editor = ~38px on printer
+
+    // Calculate approximate canvas height based on content
+    // Use a temporary canvas to measure text height
+    // Properly quote font family names that may contain spaces
+    const quotedFontFamily = fontFamily.includes(' ') ? `"${fontFamily}"` : fontFamily;
+    ctx.font = `${scaledFontSize}pt ${quotedFontFamily}`;
+    const lineHeight = scaledFontSize * 1.4; // Line height multiplier
+    const lines = text.split('\n');
+
+    // Measure actual wrapped lines
+    const wrappedLines = [];
+    lines.forEach(line => {
+      if (line.length === 0) {
+        wrappedLines.push('');
+        return;
+      }
+
+      const words = line.split(' ');
+      let currentLine = '';
+
+      words.forEach(word => {
+        const testLine = currentLine ? currentLine + ' ' + word : word;
+        const metrics = ctx.measureText(testLine);
+
+        if (metrics.width > printerWidth - (scaledMargin * 2)) { // Account for both margins
+          if (currentLine) {
+            wrappedLines.push(currentLine);
+            currentLine = word;
+          } else {
+            // Word itself is too long, just add it
+            wrappedLines.push(word);
+            currentLine = '';
+          }
+        } else {
+          currentLine = testLine;
+        }
+      });
+
+      if (currentLine) {
+        wrappedLines.push(currentLine);
+      }
+    });
+
+    const canvasHeight = Math.max(100, wrappedLines.length * lineHeight + (scaledMargin * 2)); // top/bottom margin
+    canvas.height = canvasHeight;
+
+    // Fill white background
+    ctx.fillStyle = noteColor === 'yellow' ? '#fff9c4' : '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Set text styling
+    ctx.fillStyle = '#000000';
+    ctx.font = `${scaledFontSize}pt ${quotedFontFamily}`;
+    ctx.textBaseline = 'top';
+
+    // Apply alignment
+    let textAlignValue = textAlign;
+    ctx.textAlign = textAlignValue;
+
+    let x = scaledMargin; // left margin
+    if (textAlign === 'center') {
+      x = printerWidth / 2;
+    } else if (textAlign === 'right') {
+      x = printerWidth - scaledMargin; // right margin
+    }
+
+    let y = scaledMargin; // top margin
+
+    // Draw each line
+    wrappedLines.forEach((line, index) => {
+      ctx.fillText(line, x, y);
+      y += lineHeight;
+    });
+
+    return canvas;
+  };
+
   const handlePrint = () => {
+    // Check if printer is connected before printing
+    if (!printerConnected) {
+      console.warn('[PRINT] Cannot print - printer not connected');
+      return;
+    }
+
+    if (printerScanning) {
+      console.warn('[PRINT] Cannot print - printer scan in progress');
+      return;
+    }
+
     const html = editorRef.current.innerHTML;
     let text = htmlToPlainText(html);
-    
+
     if (text.trim()) {
       setLastPrintedHTML(html);
       setLastPrintedText(text);
-      
-      // Apply first line caps if enabled
-      if (firstLineCaps) {
-        const lines = text.split('\n');
-        if (lines.length > 0) {
-          lines[0] = lines[0].toUpperCase();
-          text = lines.join('\n');
+
+      if (advancedMode) {
+        // Advanced mode: render to canvas and send image
+        console.log('[PRINT] Advanced mode - rendering to canvas');
+        console.log('[PRINT] Font family:', fontFamily);
+        console.log('[PRINT] Editor font size:', fontSize, 'pt');
+        console.log('[PRINT] Scale factor: 576px / 302px =', (576 / 302).toFixed(3));
+        console.log('[PRINT] Scaled font size:', Math.round(fontSize * 576 / 302), 'pt');
+
+        const canvas = renderTextToCanvas();
+        if (!canvas) {
+          console.error('[PRINT] Failed to render canvas');
+          return;
         }
+
+        // Convert canvas to base64 image
+        const imageData = canvas.toDataURL('image/png');
+        console.log('[PRINT] Canvas size:', canvas.width, 'x', canvas.height);
+
+        // Send image data to printer
+        window.api.printImage(imageData, canvas.width, canvas.height).catch(err => {
+          console.error('[PRINT] Print failed:', err);
+        });
+
+      } else {
+        // Simple mode: send text as before
+        // Apply first line caps if enabled
+        if (firstLineCaps) {
+          const lines = text.split('\n');
+          if (lines.length > 0) {
+            lines[0] = lines[0].toUpperCase();
+            text = lines.join('\n');
+          }
+        }
+
+        // Debug logging
+        console.log('[PRINT] Simple mode - text-based printing');
+        console.log('[PRINT] Original text:', text);
+        console.log('[PRINT] Font size:', fontSize, 'pt');
+        console.log('[PRINT] Chars per line:', getCharsPerLine(fontSize));
+        console.log('[PRINT] Word wrap enabled:', wordWrap);
+        console.log('[PRINT] First line caps:', firstLineCaps);
+
+        // Apply printer wrapping before sending to printer
+        const wrappedText = simulatePrinterWrapping(text.trim(), fontSize);
+
+        console.log('[PRINT] Wrapped text:', wrappedText);
+        console.log('[PRINT] Wrapped lines:', wrappedText.split('\n'));
+
+        window.api.print(wrappedText, textAlign, fontSize, false, false).catch(err => {
+          console.error('[PRINT] Print failed:', err);
+        });
       }
-      
-      // Debug logging
-      console.log('[PRINT] Original text:', text);
-      console.log('[PRINT] Font size:', fontSize, 'pt');
-      console.log('[PRINT] Chars per line:', getCharsPerLine(fontSize));
-      console.log('[PRINT] Word wrap enabled:', wordWrap);
-      console.log('[PRINT] First line caps:', firstLineCaps);
-      
-      // Apply printer wrapping before sending to printer
-      const wrappedText = simulatePrinterWrapping(text.trim(), fontSize);
-      
-      console.log('[PRINT] Wrapped text:', wrappedText);
-      console.log('[PRINT] Wrapped lines:', wrappedText.split('\n'));
-      
-      window.api.print(wrappedText, textAlign, fontSize, false, false);
-      
+
       // Clear the editor and start with a paragraph
       editorRef.current.innerHTML = '<p><br></p>';
       editorRef.current.focus();
@@ -764,7 +961,11 @@ function App() {
         <div className="font-controls">
           <div className="printer-status" onClick={handlePrinterStatusClick}>
             {printerConnected ? (
-              <FiCheck className="printer-status-icon connected" size={20} title="Printer connected" />
+              connectionType === 'bluetooth' ? (
+                <FiBluetooth className="printer-status-icon connected" size={20} title="Printer connected via Bluetooth" />
+              ) : (
+                <FiWifi className="printer-status-icon connected" size={20} title="Printer connected via WiFi" />
+              )
             ) : printerScanning ? (
               <FiLoader className="printer-status-icon scanning" size={20} title="Scanning for printer..." />
             ) : (
@@ -773,9 +974,9 @@ function App() {
           </div>
 
           {/* Refresh button - restore last printed text */}
-          <button 
-            className="format-btn" 
-            style={!lastPrintedHTML ? { 
+          <button
+            className="format-btn"
+            style={!lastPrintedHTML ? {
               border: 'none',
               cursor: 'not-allowed',
               pointerEvents: 'none'
@@ -784,7 +985,7 @@ function App() {
               if (lastPrintedHTML) {
                 editorRef.current.innerHTML = lastPrintedHTML;
                 editorRef.current.focus();
-                
+
                 // Place cursor at the end of the content
                 const range = document.createRange();
                 const selection = window.getSelection();
@@ -792,7 +993,7 @@ function App() {
                 range.collapse(false); // false means collapse to end
                 selection.removeAllRanges();
                 selection.addRange(range);
-                
+
                 adjustEditorHeight();
               }
             }}
@@ -816,7 +1017,7 @@ function App() {
           >
             S
           </button>
-          
+
           <button
             className={`font-size-btn ${fontSizeIndex === 1 ? 'active' : ''}`}
             onClick={() => {
@@ -828,7 +1029,7 @@ function App() {
           >
             M
           </button>
-          
+
           <button
             className={`font-size-btn ${fontSizeIndex === 2 ? 'active' : ''}`}
             onClick={() => {
@@ -840,36 +1041,36 @@ function App() {
           >
             L
           </button>
-          
+
           <div className="alignment-divider" />
-          
+
           {/* Alignment buttons */}
-          <button 
+          <button
             className={`align-btn ${textAlign === 'left' ? 'active' : ''}`}
             onClick={() => setTextAlign('left')}
             title="Align left • ⌘⇧L"
           >
             <FiAlignLeft size={18} />
           </button>
-          <button 
+          <button
             className={`align-btn ${textAlign === 'center' ? 'active' : ''}`}
             onClick={() => setTextAlign('center')}
             title="Align center • ⌘⇧E"
           >
             <FiAlignCenter size={18} />
           </button>
-          <button 
+          <button
             className={`align-btn ${textAlign === 'right' ? 'active' : ''}`}
             onClick={() => setTextAlign('right')}
             title="Align right • ⌘⇧R"
           >
             <FiAlignRight size={18} />
           </button>
-          
+
           <div className="alignment-divider" />
-          
+
           {/* Word wrap toggle */}
-          <button 
+          <button
             className={`format-btn ${wordWrap ? 'active' : ''}`}
             onClick={() => setWordWrap(!wordWrap)}
             title={wordWrap ? "Word wrap on (preserves whole words)" : "Word wrap off (breaks anywhere)"}
@@ -878,7 +1079,7 @@ function App() {
           </button>
 
           {/* Enter key behavior toggle */}
-          <button 
+          <button
             className={`format-btn ${enterToPrint ? 'active' : ''}`}
             onClick={() => setEnterToPrint(!enterToPrint)}
             title={enterToPrint ? "Enter prints, Shift+Enter creates new paragraph" : "Enter creates new paragraph, Shift+Enter prints"}
@@ -886,7 +1087,7 @@ function App() {
             <FiCornerDownLeft size={18} />
           </button>
 
-          <button 
+          <button
             className={`format-btn ${noteColor === 'yellow' ? 'active' : ''}`}
             onClick={toggleColor}
             title={`Switch to ${noteColor === 'white' ? 'yellow' : 'white'} sticky note`}
@@ -894,28 +1095,102 @@ function App() {
             <IoColorPaletteOutline size={18} />
           </button>
 
-          <button 
+          <button
             className={`format-btn ${firstLineCaps ? 'active' : ''}`}
             onClick={() => setFirstLineCaps(!firstLineCaps)}
             title={firstLineCaps ? "First line caps ON" : "First line caps OFF"}
           >
             <RiText size={18} />
           </button>
+
+          <div className="alignment-divider" />
+
+          {/* Mode toggle */}
+          <button
+            className={`format-btn ${advancedMode ? 'active' : ''}`}
+            onClick={() => setAdvancedMode(!advancedMode)}
+            title={advancedMode ? "Advanced mode (pixel-based)" : "Simple mode (text-based)"}
+          >
+            <FiImage size={18} />
+          </button>
+
+          {/* Advanced mode controls - inline after divider */}
+          {advancedMode && (
+            <>
+              <div className="alignment-divider" />
+
+              {/* Font family selector */}
+              <select
+                value={fontFamily}
+                onChange={(e) => setFontFamily(e.target.value)}
+                className="font-family-select"
+                style={{
+                  height: '28px',
+                  padding: '0 6px',
+                  borderRadius: '4px',
+                  border: '1px solid #e0e0e0',
+                  fontSize: '12px',
+                  backgroundColor: 'white',
+                  color: 'var(--accent)',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  opacity: 0.8,
+                  transition: 'all 0.15s'
+                }}
+                onMouseEnter={(e) => e.target.style.opacity = '1'}
+                onMouseLeave={(e) => e.target.style.opacity = '0.8'}
+              >
+                {FONT_FAMILIES.map(font => (
+                  <option key={font} value={font}>{font}</option>
+                ))}
+              </select>
+
+              {/* Bold button */}
+              <button
+                className={`format-btn ${isSelectionBold ? 'active' : ''}`}
+                onClick={toggleBold}
+                title="Bold (⌘B)"
+                style={{ fontWeight: 'bold', fontSize: '12px' }}
+              >
+                B
+              </button>
+
+              {/* Underline button */}
+              <button
+                className={`format-btn ${isSelectionUnderline ? 'active' : ''}`}
+                onClick={toggleUnderline}
+                title="Underline (⌘U)"
+                style={{ textDecoration: 'underline', fontSize: '12px' }}
+              >
+                U
+              </button>
+
+              {/* Strikethrough button */}
+              <button
+                className={`format-btn ${isSelectionStrikethrough ? 'active' : ''}`}
+                onClick={toggleStrikethrough}
+                title="Strikethrough"
+              >
+                <AiOutlineStrikethrough size={14} />
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      <div 
-        className="paper-container" 
+      <div
+        className="paper-container"
         style={{ background: noteColor === 'yellow' ? '#fff9c4' : '#ffffff' }}
       >
         <div
           className="note-area"
           ref={editorRef}
           contentEditable="true"
-          style={{ 
-            fontSize: `${fontSize}pt`, 
+          style={{
+            fontSize: `${fontSize}pt`,
             textAlign,
-            minHeight: '24px' // Ensure minimum height
+            minHeight: '24px', // Ensure minimum height
+            fontFamily: advancedMode ? fontFamily : 'inherit'
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}

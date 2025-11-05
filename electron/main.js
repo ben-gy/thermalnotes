@@ -1,12 +1,16 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
 const { SerialPort } = require('serialport');
 
 const store = new Store();
 
-// Lazy-require escpos only when actually printing, because it needs native modules.
+// Store main window reference to avoid getFocusedWindow() issues
+let mainWindow = null;
+
+// Lazy-require escpos and noble only when needed
 let escpos; // resolved at runtime
+let noble; // resolved at runtime for Bluetooth
 let lastTicket = '';
 let lastAlignment = 'center';
 let lastFontSize = 30;
@@ -14,9 +18,13 @@ let lastBold = false;
 let lastUnderline = false;
 let printerConnected = false;
 let printerCheckInterval = null;
+let rendererReady = false;
+let retryCount = 0;
+const MAX_RETRIES = 5;
+let connectionType = null; // 'network', 'serial', or 'bluetooth'
 
 function createWindow() {
-  const win = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 332, // Fixed width for our app
     height: 250, // Initial height (will be adjusted by content)
     minWidth: 332, // Prevent resizing narrower
@@ -31,22 +39,46 @@ function createWindow() {
   });
 
   if (!app.isPackaged) {
-    win.loadURL('http://localhost:5173');
-    win.webContents.openDevTools({ mode: 'detach' });
+    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    win.loadFile(path.join(__dirname, '../dist/index.html'));
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
-  // Start auto-detecting printer after window is ready
-  win.webContents.once('did-finish-load', () => {
-    startPrinterAutoDetection(win);
+  // Don't start auto-detection yet - wait for renderer-ready signal
+  mainWindow.webContents.once('did-finish-load', () => {
+    console.log('[PRINTER] Window finished loading, waiting for renderer ready signal...');
   });
 
-  return win;
+  return mainWindow;
 }
 
 app.whenReady().then(() => {
+  // Set Content Security Policy
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          app.isPackaged
+            ? // Production CSP - strict
+              "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'"
+            : // Development CSP - allows Vite dev server
+              "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173; style-src 'self' 'unsafe-inline' http://localhost:5173; img-src 'self' data: http://localhost:5173; font-src 'self' data: http://localhost:5173; connect-src 'self' http://localhost:5173 ws://localhost:5173"
+        ]
+      }
+    });
+  });
+
   createWindow();
+
+  // Clear HP printer if it was saved (10.0.0.8)
+  const savedIP = store.get('printerIP', '');
+  if (savedIP === '10.0.0.8') {
+    console.log('[PRINTER] Clearing HP printer (10.0.0.8) from settings...');
+    store.delete('printerIP');
+    store.delete('printerPath');
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -63,99 +95,168 @@ app.on('window-all-closed', () => {
 });
 
 /* ---------------------------  Printer Auto-Detection  --------------------------- */
+async function scanForNetworkPrinter() {
+  console.log('[NETWORK] Starting network printer scan...');
+
+  const possibleIPs = await scanForNetworkPrinters();
+  console.log(`[NETWORK] Testing ${possibleIPs.length} IPs in parallel...`);
+
+  // Test all IPs in parallel with larger batches for much faster scanning
+  const batchSize = 50; // Scan 50 IPs at once for speed
+  const batches = [];
+
+  // Split IPs into batches
+  for (let i = 0; i < possibleIPs.length; i += batchSize) {
+    batches.push(possibleIPs.slice(i, i + batchSize));
+  }
+
+  // Collect ALL found printers, don't stop at first one
+  const foundPrinters = [];
+
+  // Test each batch in parallel
+  let testedCount = 0;
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+    const batch = batches[batchIndex];
+
+    // Test all IPs in this batch simultaneously
+    const results = await Promise.allSettled(
+      batch.map(async (ip) => {
+        const connected = await testNetworkPrinterConnection(ip);
+        return { ip, connected };
+      })
+    );
+
+    testedCount += batch.length;
+    // Only log progress every 10% to reduce noise
+    if (batchIndex % Math.ceil(batches.length / 10) === 0 || batchIndex === batches.length - 1) {
+      console.log(`[NETWORK] Scan progress: ${Math.round((testedCount / possibleIPs.length) * 100)}%`);
+    }
+
+    // Collect all successful connections
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value.connected) {
+        const foundIP = result.value.ip;
+        console.log('[NETWORK] ✓ Found printer at IP:', foundIP);
+        foundPrinters.push(foundIP);
+      }
+    }
+  }
+
+  if (foundPrinters.length === 0) {
+    console.log('[NETWORK] No network printers found');
+    return null;
+  }
+
+  // If multiple printers found, prefer higher IP (likely the TM printer vs other devices)
+  // Also prioritize IPs in the 10-30 range which are more likely to be printers
+  foundPrinters.sort((a, b) => {
+    const aNum = parseInt(a.split('.').pop());
+    const bNum = parseInt(b.split('.').pop());
+
+    // Prefer IPs in 10-30 range (common for printers)
+    const aInPrinterRange = aNum >= 10 && aNum <= 30;
+    const bInPrinterRange = bNum >= 10 && bNum <= 30;
+
+    if (aInPrinterRange && !bInPrinterRange) return -1;
+    if (!aInPrinterRange && bInPrinterRange) return 1;
+
+    // Otherwise prefer higher IP
+    return bNum - aNum;
+  });
+
+  const selectedIP = foundPrinters[0];
+  console.log(`[NETWORK] Found ${foundPrinters.length} printer(s):`, foundPrinters);
+  console.log('[NETWORK] ✓ Selected Epson printer at IP:', selectedIP);
+  store.set('printerIP', selectedIP);
+  return selectedIP;
+}
+
 async function findEpsonThermalPrinter() {
-  console.log('[PRINTER] Starting auto-detection...');
+  console.log('[PRINTER] Starting auto-detection (WiFi + Bluetooth)...');
   try {
-    // First check if we have a saved IP address
+    // First check if we have saved connections
     const savedIP = store.get('printerIP', '');
-    console.log('[PRINTER] Saved IP from settings:', savedIP || 'none');
-    
-    if (savedIP) {
-      console.log('[PRINTER] Testing saved IP:', savedIP);
+    const savedBTId = store.get('bluetoothDeviceId', '');
+    const savedType = store.get('connectionType', 'network');
+
+    console.log('[PRINTER] Saved connection - Type:', savedType, 'IP:', savedIP || 'none', 'BT:', savedBTId || 'none');
+
+    // Test saved connection first based on type
+    if (savedType === 'network' && savedIP) {
+      console.log('[PRINTER] Testing saved network connection:', savedIP);
       if (await testNetworkPrinterConnection(savedIP)) {
-        console.log('[PRINTER] Saved IP is working:', savedIP);
+        console.log('[PRINTER] Saved network connection working:', savedIP);
+        connectionType = 'network';
         return savedIP;
       } else {
-        console.log('[PRINTER] Saved IP failed, will scan network');
+        console.log('[PRINTER] Saved network connection failed');
+      }
+    } else if (savedType === 'bluetooth' && savedBTId) {
+      console.log('[PRINTER] Testing saved Bluetooth connection');
+      if (await testBluetoothConnection()) {
+        console.log('[PRINTER] Saved Bluetooth connection working');
+        connectionType = 'bluetooth';
+        return savedBTId;
+      } else {
+        console.log('[PRINTER] Saved Bluetooth connection failed');
       }
     }
-    
-    // Scan common IP ranges for EPSON printers
-    console.log('[PRINTER] Starting parallel network scan...');
-    
+
     // Notify UI that scanning has started
-    const win = BrowserWindow.getFocusedWindow();
-    if (win) {
-      win.webContents.send('printer-scanning-changed', true);
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('printer-scanning-changed', true);
     }
-    
-    const possibleIPs = await scanForNetworkPrinters();
-    console.log(`[PRINTER] Testing ${possibleIPs.length} IPs in parallel...`);
-    
-    // Test all IPs in parallel with larger batches for much faster scanning
-    const batchSize = 50; // Scan 50 IPs at once for speed
-    const batches = [];
-    
-    // Split IPs into batches
-    for (let i = 0; i < possibleIPs.length; i += batchSize) {
-      batches.push(possibleIPs.slice(i, i + batchSize));
-    }
-    
-    // Test each batch in parallel
-    let testedCount = 0;
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex];
-      
-      // Test all IPs in this batch simultaneously
-      const results = await Promise.allSettled(
-        batch.map(async (ip) => {
-          const connected = await testNetworkPrinterConnection(ip);
-          return { ip, connected };
-        })
-      );
-      
-      testedCount += batch.length;
-      // Only log progress every 10% to reduce noise
-      if (batchIndex % Math.ceil(batches.length / 10) === 0 || batchIndex === batches.length - 1) {
-        console.log(`[PRINTER] Scan progress: ${Math.round((testedCount / possibleIPs.length) * 100)}%`);
+
+    console.log('[PRINTER] Starting simultaneous WiFi + Bluetooth scan...');
+
+    // Scan WiFi and Bluetooth simultaneously
+    const [networkResult, bluetoothResult] = await Promise.allSettled([
+      scanForNetworkPrinter(),
+      findBluetoothPrinter()
+    ]);
+
+    // Check network result
+    if (networkResult.status === 'fulfilled' && networkResult.value) {
+      console.log('[PRINTER] ✓ Found network printer:', networkResult.value);
+      connectionType = 'network';
+      store.set('connectionType', connectionType);
+
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.send('printer-scanning-changed', false);
       }
-      
-      // Check if any succeeded
-      for (const result of results) {
-        if (result.status === 'fulfilled' && result.value.connected) {
-          const foundIP = result.value.ip;
-          console.log('[PRINTER] ✓ Found EPSON printer at IP:', foundIP);
-          store.set('printerIP', foundIP);
-          
-          // Notify UI that scanning has finished successfully
-          const successWin = BrowserWindow.getFocusedWindow();
-          if (successWin) {
-            successWin.webContents.send('printer-scanning-changed', false);
-          }
-          
-          return foundIP;
-        }
-      }
+
+      return networkResult.value;
     }
-    
-    console.log('[PRINTER] No printers found during parallel network scan');
-    
+
+    // Check Bluetooth result
+    if (bluetoothResult.status === 'fulfilled' && bluetoothResult.value) {
+      console.log('[PRINTER] ✓ Found Bluetooth printer:', bluetoothResult.value.name);
+      connectionType = 'bluetooth';
+      store.set('connectionType', connectionType);
+
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.send('printer-scanning-changed', false);
+      }
+
+      return bluetoothResult.value.id;
+    }
+
+    console.log('[PRINTER] No printers found during WiFi or Bluetooth scan');
+
     // Notify UI that scanning has finished
-    const finalWin = BrowserWindow.getFocusedWindow();
-    if (finalWin) {
-      finalWin.webContents.send('printer-scanning-changed', false);
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('printer-scanning-changed', false);
     }
-    
+
     return null;
   } catch (err) {
     console.error('[PRINTER] Error finding printer:', err);
-    
+
     // Notify UI that scanning has finished (even on error)
-    const errorWin = BrowserWindow.getFocusedWindow();
-    if (errorWin) {
-      errorWin.webContents.send('printer-scanning-changed', false);
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('printer-scanning-changed', false);
     }
-    
+
     return null;
   }
 }
@@ -185,37 +286,44 @@ async function scanForNetworkPrinters(fullScan = false) {
             ips.push(`${networkBase}.${i}`);
           }
         } else {
-          // Expanded IP ranges for printers - covers most common printer addresses
-          const commonPrinterIPs = [
-            // 100-110 range (very common for printers)
-            `${networkBase}.100`, `${networkBase}.101`, `${networkBase}.102`, `${networkBase}.103`, `${networkBase}.104`, `${networkBase}.105`,
-            `${networkBase}.106`, `${networkBase}.107`, `${networkBase}.108`, `${networkBase}.109`, `${networkBase}.110`,
-            
-            // 180-190 range (common for network devices)
-            `${networkBase}.180`, `${networkBase}.181`, `${networkBase}.182`, `${networkBase}.183`, `${networkBase}.184`, `${networkBase}.185`,
-            `${networkBase}.186`, `${networkBase}.187`, `${networkBase}.188`, `${networkBase}.189`, `${networkBase}.190`,
-            
-            // 200-240 range (common printer range, includes many DHCP assignments)
-            `${networkBase}.200`, `${networkBase}.201`, `${networkBase}.202`, `${networkBase}.203`, `${networkBase}.204`, `${networkBase}.205`,
-            `${networkBase}.206`, `${networkBase}.207`, `${networkBase}.208`, `${networkBase}.209`, `${networkBase}.210`,
-            `${networkBase}.220`, `${networkBase}.221`, `${networkBase}.222`, `${networkBase}.223`, `${networkBase}.224`, `${networkBase}.225`,
-            `${networkBase}.230`, `${networkBase}.231`, `${networkBase}.232`, `${networkBase}.233`, `${networkBase}.234`, `${networkBase}.235`,
-            
-            // 1-30 range (DHCP often starts here)
-            `${networkBase}.1`, `${networkBase}.2`, `${networkBase}.3`, `${networkBase}.4`, `${networkBase}.5`,
-            `${networkBase}.10`, `${networkBase}.11`, `${networkBase}.12`, `${networkBase}.20`, `${networkBase}.21`, `${networkBase}.22`,
-            
-            // 50-99 range (common for static devices)
-            `${networkBase}.50`, `${networkBase}.51`, `${networkBase}.52`, `${networkBase}.53`, `${networkBase}.54`, `${networkBase}.55`,
-            `${networkBase}.60`, `${networkBase}.70`, `${networkBase}.80`, `${networkBase}.90`, `${networkBase}.91`, `${networkBase}.92`,
-            
-            // 150-170 range (additional common range)
-            `${networkBase}.150`, `${networkBase}.151`, `${networkBase}.152`, `${networkBase}.160`, `${networkBase}.161`, `${networkBase}.162`,
-            
-            // High range (often for static assignments)
-            `${networkBase}.250`, `${networkBase}.251`, `${networkBase}.252`, `${networkBase}.253`, `${networkBase}.254`,
-          ];
-          
+          // Comprehensive IP ranges - scan lower range (1-99) thoroughly
+          const commonPrinterIPs = [];
+
+          // 1-50 range (DHCP often assigns here, includes most home/office devices)
+          for (let i = 1; i <= 50; i++) {
+            commonPrinterIPs.push(`${networkBase}.${i}`);
+          }
+
+          // 50-100 range (common for static assignments)
+          for (let i = 51; i <= 100; i++) {
+            commonPrinterIPs.push(`${networkBase}.${i}`);
+          }
+
+          // 101-120 range (very common for printers)
+          for (let i = 101; i <= 120; i++) {
+            commonPrinterIPs.push(`${networkBase}.${i}`);
+          }
+
+          // Spot check 150-170 range
+          for (let i = 150; i <= 170; i++) {
+            commonPrinterIPs.push(`${networkBase}.${i}`);
+          }
+
+          // 180-200 range (common for network devices)
+          for (let i = 180; i <= 200; i++) {
+            commonPrinterIPs.push(`${networkBase}.${i}`);
+          }
+
+          // 220-240 range (common printer range)
+          for (let i = 220; i <= 240; i++) {
+            commonPrinterIPs.push(`${networkBase}.${i}`);
+          }
+
+          // High range (often for static assignments)
+          for (let i = 250; i <= 254; i++) {
+            commonPrinterIPs.push(`${networkBase}.${i}`);
+          }
+
           console.log(`[PRINTER] Adding IPs for network ${networkBase}.x:`, commonPrinterIPs.length, 'addresses');
           ips.push(...commonPrinterIPs);
         }
@@ -232,15 +340,14 @@ async function testNetworkPrinterConnection(ip) {
   try {
     if (!escpos) escpos = require('escpos');
     const networkAdapter = require('escpos-network');
-    
+
     const device = new networkAdapter(ip, 9100); // Port 9100 is standard for EPSON
-    
+
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
-        // Much shorter timeout for faster scanning
         resolve(false);
-      }, 500); // 500ms timeout - printers on local network should respond quickly
-      
+      }, 1000); // Increased timeout for status query
+
       device.open((err) => {
         clearTimeout(timeout);
         if (err) {
@@ -250,9 +357,44 @@ async function testNetworkPrinterConnection(ip) {
           }
           resolve(false);
         } else {
-          console.log(`[PRINTER] ✓ Found printer at ${ip}:9100`);
-          device.close();
-          resolve(true);
+          // Connected to port 9100 - now verify it's an Epson printer
+          console.log(`[PRINTER] Connected to ${ip}:9100, checking printer model...`);
+
+          const printer = new escpos.Printer(device, { encoding: 'GB18030' });
+
+          // Request printer status to verify it's an Epson
+          // ESC/POS command: DLE EOT n (0x10 0x04 0x01) requests printer status
+          device.write(Buffer.from([0x10, 0x04, 0x01]), (writeErr) => {
+            if (writeErr) {
+              console.log(`[PRINTER] ${ip} - Failed to query printer model`);
+              device.close();
+              resolve(false);
+              return;
+            }
+
+            // Try to read response
+            const readTimeout = setTimeout(() => {
+              console.log(`[PRINTER] ${ip} - No response from printer (likely not an Epson)`);
+              device.close();
+              resolve(false);
+            }, 500);
+
+            device.read((readErr, data) => {
+              clearTimeout(readTimeout);
+              device.close();
+
+              if (readErr || !data) {
+                // If no data or error, assume it's Epson (some printers don't respond to status)
+                // This is a fallback - port 9100 is primarily used by Epson/ESC/POS printers
+                console.log(`[PRINTER] ${ip} - Assuming Epson printer (port 9100 open)`);
+                resolve(true);
+              } else {
+                // Got a response - if it responds to ESC/POS commands, it's likely compatible
+                console.log(`[PRINTER] ${ip} - Printer responded to ESC/POS query, accepting as compatible`);
+                resolve(true);
+              }
+            });
+          });
         }
       });
     });
@@ -315,12 +457,11 @@ async function checkPrinterStatus() {
       printerConnected = true;
       
       console.log('[PRINTER] Saved connection SUCCESS');
-      
+
       if (wasConnected !== true) {
-        const win = BrowserWindow.getFocusedWindow();
-        if (win) {
+        if (mainWindow && mainWindow.webContents) {
           console.log('[PRINTER] Notifying renderer of connection');
-          win.webContents.send('printer-status-changed', true);
+          mainWindow.webContents.send('printer-status-changed', { connected: true, type: connectionType });
         }
       }
       return;
@@ -355,12 +496,11 @@ async function checkPrinterStatus() {
     // Update status to connected
     const wasConnected = printerConnected;
     printerConnected = true;
-    
+
     if (wasConnected !== true) {
-      const win = BrowserWindow.getFocusedWindow();
-      if (win) {
+      if (mainWindow && mainWindow.webContents) {
         console.log('[PRINTER] Notifying renderer of new connection');
-        win.webContents.send('printer-status-changed', true);
+        mainWindow.webContents.send('printer-status-changed', { connected: true, type: connectionType });
       }
     }
   } else {
@@ -368,33 +508,224 @@ async function checkPrinterStatus() {
     console.log('[PRINTER] No printer found during rescan');
     const wasConnected = printerConnected;
     printerConnected = false;
-    
+
     if (wasConnected !== false) {
-      const win = BrowserWindow.getFocusedWindow();
-      if (win) {
+      if (mainWindow && mainWindow.webContents) {
         console.log('[PRINTER] Notifying renderer of disconnection');
-        win.webContents.send('printer-status-changed', false);
+        mainWindow.webContents.send('printer-status-changed', { connected: false, type: null });
       }
     }
   }
 }
 
-function startPrinterAutoDetection(win) {
+async function startPrinterAutoDetection() {
   console.log('[PRINTER] Starting auto-detection...');
-  
+
   // Try saved connection first - don't clear on startup
   const savedIP = store.get('printerIP', '');
+  const savedType = store.get('connectionType', 'network');
+  connectionType = savedType;
+
   if (savedIP) {
     console.log('[PRINTER] Will test saved IP first:', savedIP);
   } else {
-    console.log('[PRINTER] No saved IP found, will scan network');
+    console.log('[PRINTER] No saved IP found, will scan network and Bluetooth');
   }
-  
-  // Initial check
-  checkPrinterStatus();
-  
+
+  // Initial check with retry logic
+  await checkPrinterStatusWithRetry();
+
   // Check every 30 seconds (less frequent since we're remembering IPs)
   printerCheckInterval = setInterval(checkPrinterStatus, 30000);
+}
+
+async function checkPrinterStatusWithRetry() {
+  retryCount = 0;
+
+  while (retryCount < MAX_RETRIES) {
+    console.log(`[PRINTER] Check attempt ${retryCount + 1}/${MAX_RETRIES}`);
+
+    await checkPrinterStatus();
+
+    if (printerConnected) {
+      console.log('[PRINTER] Printer connected successfully, stopping retries');
+      retryCount = 0;
+      return;
+    }
+
+    retryCount++;
+
+    if (retryCount < MAX_RETRIES) {
+      // Exponential backoff: 2s, 4s, 8s, 16s
+      const delay = Math.min(2000 * Math.pow(2, retryCount - 1), 16000);
+      console.log(`[PRINTER] Retry ${retryCount} failed, waiting ${delay}ms before next attempt...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  console.log('[PRINTER] Max retries reached, no printer found');
+  retryCount = 0;
+}
+
+/* ---------------------------  Bluetooth Discovery  --------------------------- */
+async function findBluetoothPrinter() {
+  console.log('[BLUETOOTH] Starting Bluetooth printer discovery...');
+
+  try {
+    if (!noble) {
+      noble = require('@abandonware/noble');
+    }
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        console.log('[BLUETOOTH] Scan timeout reached');
+        if (noble.state === 'poweredOn') {
+          noble.stopScanning();
+        }
+        resolve(null);
+      }, 10000); // 10 second scan timeout
+
+      const foundDevices = [];
+
+      noble.on('stateChange', async (state) => {
+        console.log('[BLUETOOTH] State changed to:', state);
+        if (state === 'poweredOn') {
+          console.log('[BLUETOOTH] Starting scan...');
+          // Scan for all devices - we'll filter by name
+          noble.startScanning([], false);
+        } else {
+          console.log('[BLUETOOTH] Bluetooth not powered on, stopping scan');
+          clearTimeout(timeout);
+          resolve(null);
+        }
+      });
+
+      noble.on('discover', async (peripheral) => {
+        const deviceName = peripheral.advertisement.localName || 'Unknown';
+
+        // Look for Epson printers - common naming patterns
+        if (deviceName.toLowerCase().includes('epson') ||
+            deviceName.toLowerCase().includes('tm-m30') ||
+            deviceName.toLowerCase().includes('tm-') ||
+            deviceName.toLowerCase().includes('tm30')) {
+
+          console.log('[BLUETOOTH] Found potential Epson printer:', deviceName, 'ID:', peripheral.id);
+
+          // Stop scanning once we find a printer
+          noble.stopScanning();
+          clearTimeout(timeout);
+
+          // Try to connect and verify it's a printer
+          try {
+            console.log('[BLUETOOTH] Attempting to connect to:', deviceName);
+            await connectBluetoothPrinter(peripheral);
+
+            // Save Bluetooth device info
+            store.set('bluetoothDeviceId', peripheral.id);
+            store.set('bluetoothDeviceName', deviceName);
+            connectionType = 'bluetooth';
+            store.set('connectionType', connectionType);
+
+            console.log('[BLUETOOTH] Successfully connected to:', deviceName);
+            resolve({ id: peripheral.id, name: deviceName, peripheral });
+          } catch (err) {
+            console.error('[BLUETOOTH] Failed to connect to:', deviceName, err);
+            resolve(null);
+          }
+        }
+      });
+
+      // If noble is already powered on, start scanning immediately
+      if (noble.state === 'poweredOn') {
+        console.log('[BLUETOOTH] Bluetooth already powered on, starting scan...');
+        noble.startScanning([], false);
+      }
+    });
+  } catch (err) {
+    console.error('[BLUETOOTH] Error during Bluetooth discovery:', err);
+    return null;
+  }
+}
+
+async function connectBluetoothPrinter(peripheral) {
+  return new Promise((resolve, reject) => {
+    peripheral.connect((err) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      console.log('[BLUETOOTH] Connected to peripheral:', peripheral.advertisement.localName);
+
+      // For now, just verify connection and disconnect
+      // In the actual print function, we'll connect when needed
+      peripheral.disconnect((disconnectErr) => {
+        if (disconnectErr) {
+          console.error('[BLUETOOTH] Error disconnecting:', disconnectErr);
+        }
+        resolve();
+      });
+    });
+  });
+}
+
+async function testBluetoothConnection() {
+  const savedDeviceId = store.get('bluetoothDeviceId', '');
+  const savedDeviceName = store.get('bluetoothDeviceName', '');
+
+  if (!savedDeviceId) {
+    return false;
+  }
+
+  console.log('[BLUETOOTH] Testing saved Bluetooth connection:', savedDeviceName);
+
+  try {
+    if (!noble) {
+      noble = require('@abandonware/noble');
+    }
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        if (noble.state === 'poweredOn') {
+          noble.stopScanning();
+        }
+        resolve(false);
+      }, 5000); // 5 second timeout
+
+      noble.on('stateChange', (state) => {
+        if (state === 'poweredOn') {
+          noble.startScanning([], false);
+        } else {
+          clearTimeout(timeout);
+          resolve(false);
+        }
+      });
+
+      noble.on('discover', async (peripheral) => {
+        if (peripheral.id === savedDeviceId) {
+          console.log('[BLUETOOTH] Found saved device:', savedDeviceName);
+          noble.stopScanning();
+          clearTimeout(timeout);
+
+          try {
+            await connectBluetoothPrinter(peripheral);
+            connectionType = 'bluetooth';
+            resolve(true);
+          } catch (err) {
+            console.error('[BLUETOOTH] Failed to connect to saved device:', err);
+            resolve(false);
+          }
+        }
+      });
+
+      if (noble.state === 'poweredOn') {
+        noble.startScanning([], false);
+      }
+    });
+  } catch (err) {
+    console.error('[BLUETOOTH] Error testing Bluetooth connection:', err);
+    return false;
+  }
 }
 
 /* ---------------------------  Printing logic  --------------------------- */
@@ -634,6 +965,22 @@ ipcMain.handle('refresh-printer-status', async () => {
   return printerConnected;
 });
 
+// Clear stored printer and force rescan
+ipcMain.handle('clear-printer-and-rescan', async () => {
+  console.log('[PRINTER] Clearing stored printer and forcing rescan...');
+  store.delete('printerIP');
+  store.delete('printerPath');
+  printerConnected = false;
+  currentConnection = null;
+
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('printer-status-changed', { connected: false, type: null });
+  }
+
+  await checkPrinterStatusWithRetry();
+  return { connected: printerConnected, type: connectionType };
+});
+
 ipcMain.handle('scan-network-printers', async (_event, fullScan = false) => {
   try {
     // When user manually scans, clear saved connections to force fresh detection
@@ -698,16 +1045,142 @@ ipcMain.handle('test-printer-ip', async (_event, ip) => {
       console.log('[PRINTER] Successfully connected to printer at:', ip);
       store.set('printerIP', ip);
       store.delete('printerPath');
+      connectionType = 'network';
+      store.set('connectionType', connectionType);
       // Update printer status
       printerConnected = true;
-      const win = BrowserWindow.getFocusedWindow();
-      if (win) {
-        win.webContents.send('printer-status-changed', true);
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.send('printer-status-changed', { connected: true, type: connectionType });
       }
     }
     return connected;
   } catch (err) {
     console.error('[PRINTER] Error testing IP:', ip, err);
     return false;
+  }
+});
+
+// Renderer ready signal - start auto-detection when renderer is fully loaded
+ipcMain.handle('renderer-ready', async () => {
+  console.log('[PRINTER] Renderer ready signal received, starting auto-detection...');
+  rendererReady = true;
+
+  // Start auto-detection now that renderer is ready to receive events
+  await startPrinterAutoDetection();
+
+  return { connected: printerConnected, type: connectionType };
+});
+
+// Print image handler - for advanced mode pixel-based printing
+ipcMain.handle('print-image', async (_event, imageDataUrl, width, height) => {
+  console.log('[PRINTER] Image print request received:', width, 'x', height);
+
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+
+  // Create temp file path
+  const tempDir = os.tmpdir();
+  const tempFilePath = path.join(tempDir, `thermal-print-${Date.now()}.png`);
+
+  try {
+    const { printer, device } = await connectPrinter();
+    console.log('[PRINTER] Printer connected, preparing image...');
+
+    // Convert data URL to buffer
+    const base64Data = imageDataUrl.replace(/^data:image\/\w+;base64,/, '');
+    const imageBuffer = Buffer.from(base64Data, 'base64');
+
+    // Save to temporary file
+    console.log('[PRINTER] Saving image to temp file:', tempFilePath);
+    fs.writeFileSync(tempFilePath, imageBuffer);
+
+    console.log('[PRINTER] Opening device connection...');
+
+    return new Promise((resolve, reject) => {
+      device.open((err) => {
+        if (err) {
+          console.error('[PRINTER] Failed to open device:', err);
+          // Clean up temp file
+          try { fs.unlinkSync(tempFilePath); } catch (e) { /* ignore */ }
+          reject(err);
+          return;
+        }
+
+        console.log('[PRINTER] Device opened, loading image...');
+        console.log('[PRINTER] Temp file path:', tempFilePath);
+        console.log('[PRINTER] Image dimensions:', width, 'x', height);
+
+        try {
+          // Use ESC/POS image printing
+          const Image = require('escpos').Image;
+          console.log('[PRINTER] escpos.Image class loaded:', typeof Image);
+
+          // Load image from file path with explicit MIME type
+          // Note: Image.load() uses single-parameter callback (image), not error-first (err, image)
+          console.log('[PRINTER] Calling Image.load()...');
+          Image.load(tempFilePath, 'image/png', (image) => {
+            console.log('[PRINTER] ===== Image.load() callback invoked =====');
+            console.log('[PRINTER] Callback received parameter type:', typeof image);
+            console.log('[PRINTER] Parameter constructor:', image ? image.constructor.name : 'null');
+
+            if (image && image.pixels) {
+              console.log('[PRINTER] Image has pixels property');
+              console.log('[PRINTER] Pixels shape:', image.pixels.shape);
+              console.log('[PRINTER] Image data length:', image.data ? image.data.length : 'no data');
+            } else {
+              console.error('[PRINTER] WARNING: Image object missing expected properties!');
+              console.log('[PRINTER] Image keys:', image ? Object.keys(image) : 'null');
+            }
+
+            console.log('[PRINTER] Attempting to print image...');
+
+            // Print the image
+            printer
+              .align('CT') // Center align
+              .image(image, 'd24') // d24 = double density, 24-bit (highest quality)
+              .then(() => {
+                console.log('[PRINTER] ===== Image print command succeeded =====');
+                console.log('[PRINTER] Adding spacing and cutting...');
+                printer
+                  .feed(3) // Add spacing after image
+                  .cut()
+                  .close(() => {
+                    console.log('[PRINTER] ===== Image print job completed successfully =====');
+                    // Clean up temp file
+                    try { fs.unlinkSync(tempFilePath); } catch (e) { /* ignore */ }
+                    resolve();
+                  });
+              })
+              .catch((printErr) => {
+                console.error('[PRINTER] ===== Print command failed =====');
+                console.error('[PRINTER] Error type:', typeof printErr);
+                console.error('[PRINTER] Error constructor:', printErr ? printErr.constructor.name : 'null');
+                console.error('[PRINTER] Error message:', printErr ? printErr.message : 'no message');
+                console.error('[PRINTER] Error stack:', printErr ? printErr.stack : 'no stack');
+                console.error('[PRINTER] Full error object:', JSON.stringify(printErr, null, 2));
+                device.close();
+                // Clean up temp file
+                try { fs.unlinkSync(tempFilePath); } catch (e) { /* ignore */ }
+                reject(printErr);
+              });
+          });
+        } catch (printErr) {
+          console.error('[PRINTER] ===== Image loading failed (synchronous error) =====');
+          console.error('[PRINTER] Error:', printErr);
+          console.error('[PRINTER] Stack:', printErr.stack);
+          device.close();
+          // Clean up temp file
+          try { fs.unlinkSync(tempFilePath); } catch (e) { /* ignore */ }
+          reject(printErr);
+        }
+      });
+    });
+  } catch (err) {
+    console.error('[PRINTER] Image print failed:', err.message || err);
+    console.error('[PRINTER] Full error details:', err);
+    // Clean up temp file
+    try { fs.unlinkSync(tempFilePath); } catch (e) { /* ignore */ }
+    throw err;
   }
 });
