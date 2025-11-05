@@ -367,16 +367,8 @@ function App() {
               setTextAlign('right');
             }
             break;
-          case 'enter':
-            e.preventDefault();
-            if (enterToPrint) {
-              // When enterToPrint is enabled, Cmd+Enter creates new paragraph
-              createNewParagraph();
-            } else {
-              // When enterToPrint is disabled, Cmd+Enter prints (default behavior)
-              handlePrint();
-            }
-            break;
+          // Note: Enter key handling is done in the editor's handleKeyDown function
+          // to avoid conflicts and ensure proper event handling
         }
       }
     };
