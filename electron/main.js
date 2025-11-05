@@ -55,16 +55,31 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  // Set Content Security Policy
+  // Content Security Policy (CSP) Configuration
+  //
+  // PRODUCTION CSP (app.isPackaged = true):
+  //   - Strict security policy without unsafe-eval
+  //   - Only allows self-hosted resources
+  //   - Style 'unsafe-inline' is necessary for React inline styles
+  //
+  // DEVELOPMENT CSP (app.isPackaged = false):
+  //   - Includes 'unsafe-eval' - REQUIRED for Vite Hot Module Replacement (HMR)
+  //   - Includes 'unsafe-inline' - REQUIRED for Vite fast refresh
+  //   - Allows localhost:5173 for Vite dev server
+  //   - Allows ws://localhost:5173 for Vite WebSocket (HMR)
+  //
+  // Note: Electron will show a security warning about unsafe-eval during development.
+  // This is EXPECTED and INTENTIONAL - the warning disappears in production builds.
+  // The production CSP is fully secure.
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
           app.isPackaged
-            ? // Production CSP - strict
+            ? // Production CSP - strict and secure
               "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'"
-            : // Development CSP - allows Vite dev server
+            : // Development CSP - allows Vite dev server with HMR
               "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173; style-src 'self' 'unsafe-inline' http://localhost:5173; img-src 'self' data: http://localhost:5173; font-src 'self' data: http://localhost:5173; connect-src 'self' http://localhost:5173 ws://localhost:5173"
         ]
       }
