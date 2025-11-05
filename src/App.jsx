@@ -540,7 +540,8 @@ function App() {
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      
+      e.stopPropagation(); // Prevent event from bubbling to window handler
+
       if (enterToPrint) {
         // When enterToPrint is enabled:
         // - Enter prints
